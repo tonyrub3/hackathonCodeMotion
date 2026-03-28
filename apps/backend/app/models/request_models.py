@@ -19,7 +19,10 @@ class VerifyRequest(BaseModel):
         max_length=50_000,
         description="The text to verify or the URL to analyse.",
     )
-    language: str = Field(default="en", description="ISO-639-1 language code.")
+    language: str = Field(
+        default="auto",
+        description="ISO-639-1 language code, or 'auto' to detect from the input.",
+    )
     country: str = Field(default="", description="ISO-3166-1 alpha-2 country code.")
     topic: str = Field(
         default="",

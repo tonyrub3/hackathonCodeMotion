@@ -57,18 +57,24 @@ class JudgeAgent:
                          pv["id"], pv["partial_verdict"],
                          pv["partial_score"], pv["claim"][:60])
 
-        # 2. Compute global truth score
+        # 2. Linguistic risk (lightweight)
+        state.linguistic_risk = self._assess_linguistic_risk(state.normalized_text, state.language)
+        if state.linguistic_risk.get("manipulation_markers"):
+            logger.info("    linguistic risk markers: %s", state.linguistic_risk["manipulation_markers"])
+
+        # 3. Compute global truth score
         truth_score = compute_truth_score(
             scored_evidence=state.scored_evidence,
             consensus_signals=state.consensus_signals,
             claims=state.claims,
             contradictions=state.contradictions,
             site_forensics=state.site_forensics,
+            linguistic_risk=state.linguistic_risk,
         )
         state.truth_score = truth_score
         logger.info("    truth_score = %.1f", truth_score)
 
-        # 3. Compute confidence
+        # 4. Compute confidence
         state.confidence_score = compute_confidence(
             evidence_count=len(state.scored_evidence),
             source_count=len(state.sources_used),
@@ -77,7 +83,7 @@ class JudgeAgent:
         )
         logger.info("    confidence = %.2f", state.confidence_score)
 
-        # 4. Map to verdict
+        # 5. Map to verdict
         state.verdict = map_verdict(
             truth_score=truth_score,
             confidence=state.confidence_score,
@@ -87,11 +93,6 @@ class JudgeAgent:
 
         logger.info("    VERDICT = %s", state.verdict)
 
-        # 5. Linguistic risk (lightweight)
-        state.linguistic_risk = self._assess_linguistic_risk(state.normalized_text)
-        if state.linguistic_risk.get("manipulation_markers"):
-            logger.info("    linguistic risk markers: %s", state.linguistic_risk["manipulation_markers"])
-
         # 6. Build explanation
         state.explanation = build_explanation(
             verdict=state.verdict,
@@ -100,8 +101,9 @@ class JudgeAgent:
             scored_evidence=state.scored_evidence,
             contradictions=state.contradictions,
             sources_used=state.sources_used,
-            source_summary=build_source_summary(state.sources_used),
+            source_summary=build_source_summary(state.sources_used, language=state.language),
             site_forensics=state.site_forensics,
+            language=state.language,
         )
 
         return state
@@ -111,7 +113,6 @@ class JudgeAgent:
         results: list[dict[str, Any]] = []
         for claim in state.claims:
             cid = claim["id"]
-            consensus = state.consensus_signals.get(cid, {})
             relevant_ev = [
                 e for e in state.scored_evidence
                 if cid in e.get("matched_claim_ids", [])
@@ -166,17 +167,19 @@ class JudgeAgent:
             return 0.0
         return sum(s.get("source_reliability_score", 0.5) for s in sources) / len(sources)
 
-    def _assess_linguistic_risk(self, text: str) -> dict[str, Any]:
+    def _assess_linguistic_risk(self, text: str, language: str = "en") -> dict[str, Any]:
         """Lightweight linguistic risk assessment from surface patterns."""
         if not text:
             return {}
 
-        text_lower = text.lower()
+        text_lower = self._normalize_for_match(text)
 
         # Sensationalism
         sensational_words = [
             "shocking", "explosive", "bombshell", "devastating", "incredible",
             "unbelievable", "breaking", "urgent", "exclusive", "scandal",
+            "scioccante", "esplosivo", "clamoroso", "devastante", "incredibile",
+            "allarmante", "urgente", "esclusivo", "scandalo",
         ]
         sens_count = sum(1 for w in sensational_words if w in text_lower)
         sensationalism = min(1.0, sens_count * 0.15)
@@ -185,6 +188,8 @@ class JudgeAgent:
         vague_attr = [
             "according to some", "sources say", "it is believed",
             "reportedly", "allegedly", "some experts",
+            "secondo alcuni", "fonti dicono", "si crede", "si ritiene",
+            "pare", "presumibilmente", "sarebbe", "alcuni esperti", "si dice", "circola",
         ]
         attr_count = sum(1 for phrase in vague_attr if phrase in text_lower)
         attribution_risk = min(1.0, attr_count * 0.2)
@@ -193,13 +198,15 @@ class JudgeAgent:
         uncertainty = [
             "might", "could", "possibly", "perhaps", "unclear",
             "unconfirmed", "rumor", "speculation",
+            "potrebbe", "potrebbero", "forse", "probabilmente",
+            "non confermato", "voci", "speculazione", "incerto",
         ]
         unc_count = sum(1 for w in uncertainty if w in text_lower)
         uncertainty_score = min(1.0, unc_count * 0.15)
 
         # Manipulation markers (collect actual phrases found)
         manipulation_markers: list[str] = []
-        for phrase in vague_attr + sensational_words[:5]:
+        for phrase in vague_attr + sensational_words:
             if phrase in text_lower:
                 manipulation_markers.append(phrase)
 
@@ -210,3 +217,11 @@ class JudgeAgent:
             "uncertainty_score": round(uncertainty_score, 2),
             "manipulation_markers": manipulation_markers,
         }
+
+    def _normalize_for_match(self, text: str) -> str:
+        """Lowercase and strip accents for robust marker matching."""
+        import unicodedata
+
+        normalized = unicodedata.normalize("NFKD", text or "")
+        stripped = "".join(ch for ch in normalized if not unicodedata.combining(ch))
+        return stripped.casefold()

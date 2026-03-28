@@ -16,7 +16,28 @@ def split_sentences(text: str) -> list[str]:
 
     # Protect common abbreviations
     protected = text
-    abbreviations = ["Mr.", "Mrs.", "Dr.", "Prof.", "Inc.", "Ltd.", "Sr.", "Jr.", "vs.", "etc.", "e.g.", "i.e."]
+    abbreviations = [
+        "Mr.",
+        "Mrs.",
+        "Dr.",
+        "Prof.",
+        "Inc.",
+        "Ltd.",
+        "Sr.",
+        "Jr.",
+        "vs.",
+        "etc.",
+        "e.g.",
+        "i.e.",
+        "Dott.",
+        "Dott.ssa.",
+        "Sig.",
+        "Sig.ra.",
+        "Ing.",
+        "Avv.",
+        "On.",
+        "S.p.A.",
+    ]
     for abbr in abbreviations:
         protected = protected.replace(abbr, abbr.replace(".", "<DOT>"))
 

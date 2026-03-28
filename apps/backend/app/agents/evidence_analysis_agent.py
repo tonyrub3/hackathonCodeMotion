@@ -26,6 +26,12 @@ from typing import Any
 
 from app.config import Settings
 from app.core.state import PipelineState
+from app.services.llm.prompts import STANCE_CLASSIFICATION_PROMPT
+from app.services.contradiction.conflict_merger import merge_conflicts
+from app.services.contradiction.date_conflicts import detect_date_conflicts
+from app.services.contradiction.entity_conflicts import detect_entity_conflicts
+from app.services.contradiction.number_conflicts import detect_number_conflicts
+from app.services.contradiction.quote_conflicts import detect_quote_conflicts
 from app.services.scoring.source_reliability import compute_source_reliability
 from app.services.scoring.evidence_score import compute_evidence_score
 from app.services.llm.regolo_client import RegoloClient
@@ -48,10 +54,16 @@ class EvidenceAnalysisAgent:
         """
         scored: list[dict[str, Any]] = []
         source_scores: dict[str, dict[str, Any]] = {}
+        claim_map = {claim.get("id", ""): claim for claim in state.claims if claim.get("id")}
 
         logger.info("    evidence items to analyze: %d", len(state.evidence_items))
 
         for i, ev in enumerate(state.evidence_items):
+            matched_ids = ev.get("matched_claim_ids", []) or []
+            if matched_ids:
+                primary_claim = claim_map.get(matched_ids[0], {})
+                ev["claim_type"] = primary_claim.get("type", "")
+
             # 1. Classify stance
             ev["stance"] = await self._classify_stance(ev, state.claims)
             logger.info("    [E%d] %s stance=%s src=%s",
@@ -95,7 +107,18 @@ class EvidenceAnalysisAgent:
                              src.get("tier", "?"))
 
         # Detect contradictions
-        state.contradictions = self._detect_contradictions(scored, state.claims)
+        stance_conflicts = self._detect_stance_conflicts(scored, state.claims)
+        number_conflicts = detect_number_conflicts(scored)
+        date_conflicts = detect_date_conflicts(scored)
+        entity_conflicts = detect_entity_conflicts(scored, state.claims)
+        quote_conflicts = detect_quote_conflicts(scored)
+        state.contradictions = merge_conflicts(
+            stance_conflicts,
+            number_conflicts,
+            date_conflicts,
+            entity_conflicts,
+            quote_conflicts,
+        )
         logger.info("    contradictions found: %d", len(state.contradictions))
 
         # Build consensus signals
@@ -121,12 +144,9 @@ class EvidenceAnalysisAgent:
             return "neutral"
 
         # Try LLM classification
-        prompt = (
-            "Given the claim and evidence excerpt below, classify the evidence stance as "
-            "exactly one of: supporting, contradicting, neutral.\n\n"
-            f"Claim: {claim_texts[0]}\n"
-            f"Evidence: {excerpt}\n\n"
-            "Stance:"
+        prompt = STANCE_CLASSIFICATION_PROMPT.format(
+            claim=claim_texts[0],
+            evidence=excerpt,
         )
         try:
             response = await self.llm.complete_text(prompt, max_tokens=20)
@@ -170,7 +190,7 @@ class EvidenceAnalysisAgent:
             return 0.7  # Has a date → moderate trust
         return 0.4
 
-    def _detect_contradictions(
+    def _detect_stance_conflicts(
         self, scored: list[dict[str, Any]], claims: list[dict[str, Any]]
     ) -> list[dict[str, Any]]:
         """Detect explicit contradictions between evidence items for the same claim."""

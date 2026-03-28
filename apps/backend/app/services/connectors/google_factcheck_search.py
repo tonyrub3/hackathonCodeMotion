@@ -9,9 +9,12 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import unicodedata
 from typing import Any
 
 import httpx
+
+from app.services.parsing.language_detection import canonical_language_code
 
 logger = logging.getLogger(__name__)
 
@@ -32,10 +35,14 @@ async def search_google_factcheck(
         logger.debug("Google Fact Check API key not set – skipping")
         return []
 
+    language_code = canonical_language_code(language)
+    if language_code not in {"it", "en"}:
+        language_code = "en"
+
     params = {
         "query": query,
         "key": api_key,
-        "languageCode": language,
+        "languageCode": language_code,
         "pageSize": max_results,
     }
 
@@ -56,7 +63,7 @@ async def search_google_factcheck(
             ).hexdigest()[:12]
 
             # Map textual rating to stance
-            rating = review.get("textualRating", "").lower()
+            rating = _normalize_for_match(review.get("textualRating", ""))
             stance = _rating_to_stance(rating)
 
             results.append({
@@ -81,8 +88,31 @@ async def search_google_factcheck(
 
 def _rating_to_stance(rating: str) -> str:
     """Map a fact-check textual rating to a stance label."""
-    positive = ["true", "correct", "accurate", "verified", "mostly true"]
-    negative = ["false", "incorrect", "pants on fire", "mostly false", "misleading"]
+    positive = [
+        "true",
+        "correct",
+        "accurate",
+        "verified",
+        "mostly true",
+        "vero",
+        "veritiero",
+        "corretto",
+        "accurato",
+        "verificato",
+        "in gran parte vero",
+    ]
+    negative = [
+        "false",
+        "incorrect",
+        "pants on fire",
+        "mostly false",
+        "misleading",
+        "falso",
+        "inesatto",
+        "errato",
+        "fuorviante",
+        "in gran parte falso",
+    ]
 
     for kw in positive:
         if kw in rating:
@@ -91,3 +121,10 @@ def _rating_to_stance(rating: str) -> str:
         if kw in rating:
             return "contradicting"
     return "neutral"
+
+
+def _normalize_for_match(text: str) -> str:
+    """Lowercase and remove accents for resilient rating matching."""
+    normalized = unicodedata.normalize("NFKD", text or "")
+    stripped = "".join(ch for ch in normalized if not unicodedata.combining(ch))
+    return stripped.casefold()

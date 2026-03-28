@@ -46,17 +46,34 @@ def compute_site_trust_score(forensics: dict[str, Any]) -> float:
     score -= circular * 0.1
 
     # Transparency
+    transparency_score = forensics.get("transparency_score")
+    if isinstance(transparency_score, (int, float)):
+        score += max(0.0, min(1.0, float(transparency_score))) * 0.1
     if forensics.get("has_about_page"):
         score += 0.05
     if forensics.get("has_contact_page"):
         score += 0.03
     if forensics.get("has_editorial_policy"):
         score += 0.07
+    if forensics.get("has_author_pages"):
+        score += 0.03
+    if forensics.get("has_ownership_page"):
+        score += 0.03
     if forensics.get("ownership_transparent"):
         score += 0.05
 
     # Headline/body mismatch
     mismatch = forensics.get("headline_body_mismatch", 0.0)
     score -= mismatch * 0.1
+
+    # URL structure
+    path_depth = forensics.get("path_depth", 0)
+    if path_depth >= 5:
+        score -= 0.04
+    elif path_depth <= 1:
+        score += 0.02
+
+    if forensics.get("has_subdomain") and not str(forensics.get("domain", "")).endswith((".gov", ".edu", ".int")):
+        score -= 0.02
 
     return round(max(0.0, min(1.0, score)), 3)
