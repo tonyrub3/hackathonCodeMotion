@@ -33,7 +33,12 @@ class RegoloClient:
         self.embedding_api_key = settings.regolo_embedding_api_key or settings.regolo_api_key
         self.embedding_model = settings.regolo_embedding_model
 
-    async def complete_text(self, prompt: str, max_tokens: int = 512) -> str:
+    async def complete_text(
+        self,
+        prompt: str,
+        max_tokens: int = 512,
+        timeout_seconds: int = 20,
+    ) -> str:
         """Get a text completion from the LLM."""
         if not self.api_key:
             logger.warning("LLM: API key not set – skipping")
@@ -53,11 +58,13 @@ class RegoloClient:
 
         logger.info("    LLM CALL model=%s tokens=%d prompt=%.80s...", self.model, max_tokens, prompt.replace("\n", " "))
         try:
-            async with httpx.AsyncClient(timeout=30) as client:
+            async with httpx.AsyncClient(timeout=timeout_seconds) as client:
                 resp = await client.post(url, json=payload, headers=headers)
                 resp.raise_for_status()
                 data = resp.json()
-                result = data["choices"][0]["message"]["content"]
+                message = data["choices"][0].get("message", {})
+                # Some models may populate reasoning_content while keeping content null.
+                result = message.get("content") or message.get("reasoning_content") or ""
                 logger.info("    LLM RESPONSE (%d chars): %.120s%s",
                              len(result), result.replace("\n", " "),
                              "..." if len(result) > 120 else "")

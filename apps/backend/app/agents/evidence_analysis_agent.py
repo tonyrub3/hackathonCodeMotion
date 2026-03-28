@@ -38,6 +38,8 @@ from app.services.llm.regolo_client import RegoloClient
 
 logger = logging.getLogger(__name__)
 
+_NOISE_SOURCE_HINTS = ("doubleclick", "googlesyndication", "googletagmanager", "analytics", "ads.")
+
 
 class EvidenceAnalysisAgent:
     """Score evidence, compute source reliability, detect contradictions."""
@@ -134,6 +136,15 @@ class EvidenceAnalysisAgent:
         self, evidence: dict[str, Any], claims: list[dict[str, Any]]
     ) -> str:
         """Classify evidence stance relative to matched claims."""
+        source_id = evidence.get("source_id", "")
+        source_name = evidence.get("source_name", "").lower()
+
+        # Cited links and ad/analytics domains are not useful for semantic stance.
+        if source_id.startswith("cited_"):
+            return "neutral"
+        if any(h in source_name for h in _NOISE_SOURCE_HINTS):
+            return "neutral"
+
         excerpt = evidence.get("excerpt", "")
         if not excerpt:
             return "neutral"
@@ -143,13 +154,21 @@ class EvidenceAnalysisAgent:
         if not claim_texts:
             return "neutral"
 
+        # Fast lexical fallback for fact-check ratings.
+        excerpt_l = excerpt.lower()
+        if "rating:" in excerpt_l:
+            if any(k in excerpt_l for k in (" false", " misleading", " mostly false", "incorrect")):
+                return "contradicting"
+            if any(k in excerpt_l for k in (" true", " mostly true", "accurate", "correct")):
+                return "supporting"
+
         # Try LLM classification
         prompt = STANCE_CLASSIFICATION_PROMPT.format(
             claim=claim_texts[0],
             evidence=excerpt,
         )
         try:
-            response = await self.llm.complete_text(prompt, max_tokens=20)
+            response = await self.llm.complete_text(prompt, max_tokens=8, timeout_seconds=8)
             response = response.strip().lower()
             if "supporting" in response:
                 return "supporting"

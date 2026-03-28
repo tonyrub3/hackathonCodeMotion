@@ -225,7 +225,10 @@ class SourceDiscoveryAgent:
         for claim in state.claims:
             strategy = get_discovery_strategy(claim.get("type", ""), state.topic)
             profile = self._build_discovery_profile(claim, state, language_key)
-            base_queries = build_queries(claim, state.topic, language_key)
+            base_queries = self._normalize_queries(
+                build_queries(claim, state.topic, language_key),
+                claim,
+            )
             docs_queries = self._select_queries(base_queries, profile, channel="docs")
             context_queries = self._select_queries(base_queries, profile, channel="context")
             claim["_discovery_profile"] = profile
@@ -462,6 +465,27 @@ class SourceDiscoveryAgent:
             reverse=True,
         )
         return state
+
+    def _normalize_queries(self, raw_queries: Any, claim: dict[str, Any]) -> list[str]:
+        """Ensure discovery queries are clean strings to avoid connector crashes."""
+        queries: list[str] = []
+        if isinstance(raw_queries, list):
+            for q in raw_queries:
+                if isinstance(q, str):
+                    q = q.strip()
+                    if q:
+                        queries.append(q)
+                elif isinstance(q, dict):
+                    q_claim = q.get("claim")
+                    if isinstance(q_claim, str) and q_claim.strip():
+                        queries.append(q_claim.strip())
+
+        if not queries:
+            fallback = str(claim.get("claim", "")).strip()
+            if fallback:
+                queries = [fallback]
+
+        return self._dedupe_preserve_order(queries)[:3]
 
     def _build_discovery_profile(
         self,

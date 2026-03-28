@@ -353,7 +353,32 @@ class ClaimDecompositionAgent:
         try:
             result = await self.llm.complete_json(prompt)
             if isinstance(result, list) and result:
-                return result
+                normalized: list[dict[str, Any]] = []
+                for item in result:
+                    if not isinstance(item, dict):
+                        continue
+                    claim_text = item.get("claim")
+                    if not isinstance(claim_text, str):
+                        continue
+                    claim_text = claim_text.strip()
+                    if len(claim_text) < 8:
+                        continue
+
+                    normalized.append({
+                        "claim": claim_text,
+                        "type": item.get("type", "event"),
+                        "subject": item.get("subject", ""),
+                        "predicate": item.get("predicate", ""),
+                        "object": item.get("object", ""),
+                        "time_scope": item.get("time_scope", ""),
+                        "geo_scope": item.get("geo_scope", ""),
+                        "checkability_score": item.get("checkability_score", 0.5),
+                        "dependency_type": item.get("dependency_type", "standalone"),
+                        "requires_evidence_type": item.get("requires_evidence_type", ["general"]),
+                    })
+
+                if normalized:
+                    return normalized
         except Exception as exc:
             logger.warning("LLM decomposition failed, falling back to simple: %s", exc)
 

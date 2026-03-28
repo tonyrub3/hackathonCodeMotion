@@ -26,7 +26,7 @@ async def search_gdelt_context(
     """
     params = {
         "query": query,
-        "mode": "ContextSearch",
+        "mode": "ArtList",
         "maxrecords": str(max_results),
         "format": "json",
     }
@@ -35,6 +35,10 @@ async def search_gdelt_context(
         async with httpx.AsyncClient(timeout=15) as client:
             resp = await client.get(api_url, params=params)
             resp.raise_for_status()
+            content_type = resp.headers.get("content-type", "")
+            if "json" not in content_type.lower():
+                logger.warning("GDELT Context non-JSON response")
+                return []
             data = resp.json()
     except Exception as exc:
         logger.warning("GDELT Context search error: %s", exc)

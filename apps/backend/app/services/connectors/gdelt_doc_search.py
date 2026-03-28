@@ -40,6 +40,10 @@ async def search_gdelt_docs(
             async with httpx.AsyncClient(timeout=15) as client:
                 resp = await client.get(api_url, params=params)
                 resp.raise_for_status()
+                content_type = resp.headers.get("content-type", "")
+                if "json" not in content_type.lower():
+                    logger.warning("GDELT DOC non-JSON response for query '%s'", query)
+                    continue
                 data = resp.json()
         except Exception as exc:
             logger.warning("GDELT DOC search error for query '%s': %s", query, exc)

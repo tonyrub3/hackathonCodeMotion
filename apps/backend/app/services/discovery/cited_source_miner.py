@@ -20,6 +20,33 @@ _PRIMARY_PATTERNS = [
     "/official", "/releases", "/statistics",
 ]
 
+_NOISE_DOMAIN_PATTERNS = [
+    "doubleclick.net",
+    "googlesyndication.com",
+    "googletagmanager.com",
+    "google-analytics.com",
+    "ads.",
+    "adservice",
+    "analytics",
+    "tracking",
+]
+
+
+def _is_noise_link(link: str) -> bool:
+    parsed = urlparse(link)
+    domain = parsed.netloc.lower()
+    path = parsed.path.lower()
+    full = f"{domain}{path}"
+
+    if any(p in full for p in _NOISE_DOMAIN_PATTERNS):
+        return True
+
+    # Skip likely static assets and scripts mistakenly captured as citations.
+    if any(path.endswith(ext) for ext in (".js", ".css", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp")):
+        return True
+
+    return False
+
 
 async def mine_cited_sources(
     cited_links: list[str],
@@ -32,6 +59,9 @@ async def mine_cited_sources(
     results: list[dict[str, Any]] = []
 
     for link in cited_links[:20]:  # Cap processing
+        if _is_noise_link(link):
+            continue
+
         parsed = urlparse(link)
         domain = parsed.netloc
         path = parsed.path.lower()
