@@ -30,12 +30,13 @@ class RegoloClient:
         self.api_key = settings.regolo_api_key
         self.base_url = settings.regolo_base_url.rstrip("/")
         self.model = settings.regolo_model
+        self.embedding_api_key = settings.regolo_embedding_api_key or settings.regolo_api_key
         self.embedding_model = settings.regolo_embedding_model
 
     async def complete_text(self, prompt: str, max_tokens: int = 512) -> str:
         """Get a text completion from the LLM."""
         if not self.api_key:
-            logger.debug("Regolo API key not set – returning empty")
+            logger.warning("LLM: API key not set – skipping")
             return ""
 
         url = f"{self.base_url}/chat/completions"
@@ -50,14 +51,19 @@ class RegoloClient:
             "temperature": 0.1,
         }
 
+        logger.info("    LLM CALL model=%s tokens=%d prompt=%.80s...", self.model, max_tokens, prompt.replace("\n", " "))
         try:
             async with httpx.AsyncClient(timeout=30) as client:
                 resp = await client.post(url, json=payload, headers=headers)
                 resp.raise_for_status()
                 data = resp.json()
-                return data["choices"][0]["message"]["content"]
+                result = data["choices"][0]["message"]["content"]
+                logger.info("    LLM RESPONSE (%d chars): %.120s%s",
+                             len(result), result.replace("\n", " "),
+                             "..." if len(result) > 120 else "")
+                return result
         except Exception as exc:
-            logger.warning("Regolo completion failed: %s", exc)
+            logger.error("    LLM FAILED: %s", exc)
             return ""
 
     async def complete_json(self, prompt: str, max_tokens: int = 1024) -> Any:
@@ -90,12 +96,12 @@ class RegoloClient:
 
     async def embed(self, texts: list[str]) -> list[list[float]]:
         """Get embeddings for a list of texts."""
-        if not self.api_key:
+        if not self.embedding_api_key:
             return []
 
         url = f"{self.base_url}/embeddings"
         headers = {
-            "Authorization": f"Bearer {self.api_key}",
+            "Authorization": f"Bearer {self.embedding_api_key}",
             "Content-Type": "application/json",
         }
         payload = {

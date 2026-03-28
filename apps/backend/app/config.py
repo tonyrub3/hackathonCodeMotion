@@ -22,6 +22,7 @@ class Settings:
     regolo_api_key: str = ""
     regolo_base_url: str = "https://api.regolo.ai/v1"
     regolo_model: str = "regolo/regolo-default"
+    regolo_embedding_api_key: str = ""
     regolo_embedding_model: str = "regolo/embedding-default"
 
     # Google Fact Check
@@ -53,6 +54,7 @@ def load_settings() -> Settings:
         regolo_api_key=os.getenv("REGOLO_API_KEY", ""),
         regolo_base_url=os.getenv("REGOLO_BASE_URL", "https://api.regolo.ai/v1"),
         regolo_model=os.getenv("REGOLO_MODEL", "regolo/regolo-default"),
+        regolo_embedding_api_key=os.getenv("REGOLO_EMBEDDING_API_KEY", ""),
         regolo_embedding_model=os.getenv("REGOLO_EMBEDDING_MODEL", "regolo/embedding-default"),
         google_factcheck_api_key=os.getenv("GOOGLE_FACTCHECK_API_KEY", ""),
         gdelt_doc_api_url=os.getenv("GDELT_DOC_API_URL", "https://api.gdeltproject.org/api/v2/doc/doc"),

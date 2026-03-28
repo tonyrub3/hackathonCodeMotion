@@ -28,6 +28,15 @@ from app.agents.judge_agent import JudgeAgent
 
 logger = logging.getLogger(__name__)
 
+STEP_ICONS = {
+    "input_normalizer": "1/6",
+    "claim_decomposition": "2/6",
+    "source_discovery": "3/6",
+    "evidence_analysis": "4/6",
+    "site_forensics": "5/6",
+    "judge": "6/6",
+}
+
 
 class Orchestrator:
     """Runs the full verification pipeline and returns the final state."""
@@ -61,6 +70,14 @@ class Orchestrator:
             mode=mode,
         )
 
+        logger.info("")
+        logger.info("=" * 60)
+        logger.info("NEW REQUEST [%s]", state.request_id)
+        logger.info("  type=%s  mode=%s  lang=%s  topic=%s",
+                     input_type, mode, language, topic or "(none)")
+        logger.info("  content: %.100s%s", content, "..." if len(content) > 100 else "")
+        logger.info("=" * 60)
+
         steps: list[tuple[str, Any]] = [
             ("input_normalizer", self.input_normalizer),
             ("claim_decomposition", self.claim_decomposer),
@@ -68,20 +85,39 @@ class Orchestrator:
             ("evidence_analysis", self.evidence_analyzer),
         ]
 
-        # Site forensics only for URL input
         if input_type == "url":
             steps.append(("site_forensics", self.site_forensics))
 
         steps.append(("judge", self.judge))
 
+        total_t0 = time.time()
         for step_name, agent in steps:
+            icon = STEP_ICONS.get(step_name, "?/?")
+            logger.info("")
+            logger.info("--- [%s] %s ---", icon, step_name.upper())
             t0 = time.time()
             try:
-                logger.info("Running step: %s (request=%s)", step_name, state.request_id)
                 state = await agent.run(state)
+                elapsed = round(time.time() - t0, 3)
+                logger.info("    completed in %.3fs", elapsed)
             except Exception as exc:
-                logger.exception("Step %s failed: %s", step_name, exc)
+                elapsed = round(time.time() - t0, 3)
+                logger.error("    FAILED in %.3fs: %s", elapsed, exc, exc_info=True)
                 state.errors.append(f"{step_name}: {exc}")
-            state.timings[step_name] = round(time.time() - t0, 3)
+            state.timings[step_name] = elapsed
+
+        total_elapsed = round(time.time() - total_t0, 3)
+        logger.info("")
+        logger.info("=" * 60)
+        logger.info("REQUEST COMPLETE [%s] in %.3fs", state.request_id, total_elapsed)
+        logger.info("  verdict:    %s", state.verdict)
+        logger.info("  score:      %.1f / 100", state.truth_score)
+        logger.info("  confidence: %.0f%%", state.confidence_score * 100)
+        logger.info("  claims:     %d", len(state.claims))
+        logger.info("  evidence:   %d", len(state.scored_evidence))
+        logger.info("  sources:    %d", len(state.sources_used))
+        logger.info("  errors:     %d %s", len(state.errors), state.errors if state.errors else "")
+        logger.info("  timings:    %s", state.timings)
+        logger.info("=" * 60)
 
         return state

@@ -56,9 +56,11 @@ class ClaimDecompositionAgent:
         """
         text = state.normalized_text
         if not text:
+            logger.warning("    no text to decompose")
             return state
 
         sentences = split_sentences(text)
+        logger.info("    sentences found: %d", len(sentences))
         claims: list[dict[str, Any]] = []
         claim_counter = 0
 
@@ -71,7 +73,9 @@ class ClaimDecompositionAgent:
             is_complex = len(sentence.split()) > 25 or sentence.count(",") >= 2
 
             if is_complex or is_causal:
+                logger.info("    [S%d] COMPLEX/CAUSAL -> LLM decomposition: %.80s", idx, sentence)
                 decomposed = await self._semantic_decompose(sentence, idx)
+                logger.info("    [S%d] LLM returned %d sub-claims", idx, len(decomposed))
                 for sub in decomposed:
                     claim_counter += 1
                     sub["id"] = f"c{claim_counter}"
@@ -79,14 +83,22 @@ class ClaimDecompositionAgent:
                     claims.append(sub)
             else:
                 claim_counter += 1
+                logger.info("    [S%d] SIMPLE -> heuristic: %.80s", idx, sentence)
                 claims.append(self._make_simple_claim(sentence, claim_counter, idx))
 
         # Deduplicate
+        before_dedup = len(claims)
         claims = self._deduplicate(claims)
+        if before_dedup != len(claims):
+            logger.info("    dedup: %d -> %d claims", before_dedup, len(claims))
 
         # Cap
         claims = claims[: self.settings.max_claims_per_request]
         state.claims = claims
+
+        for c in claims:
+            logger.info("    CLAIM [%s] type=%s checkability=%.2f: %s",
+                         c["id"], c["type"], c.get("checkability_score", 0), c["claim"][:80])
         return state
 
     def _make_simple_claim(self, sentence: str, num: int, idx: int) -> dict[str, Any]:

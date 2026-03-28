@@ -49,9 +49,14 @@ class EvidenceAnalysisAgent:
         scored: list[dict[str, Any]] = []
         source_scores: dict[str, dict[str, Any]] = {}
 
-        for ev in state.evidence_items:
+        logger.info("    evidence items to analyze: %d", len(state.evidence_items))
+
+        for i, ev in enumerate(state.evidence_items):
             # 1. Classify stance
             ev["stance"] = await self._classify_stance(ev, state.claims)
+            logger.info("    [E%d] %s stance=%s src=%s",
+                         i, ev.get("source_id", "?"), ev["stance"],
+                         ev.get("source_name", "?")[:30])
 
             # 2. Compute source reliability
             sid = ev.get("source_id", "")
@@ -84,12 +89,21 @@ class EvidenceAnalysisAgent:
             if sid in source_scores:
                 src["source_reliability_score"] = source_scores[sid]["total"]
                 src["dimensions"] = source_scores[sid]["dimensions"]
+                logger.info("    SRC [%s] reliability=%.2f tier=%s",
+                             src.get("source_name", sid)[:30],
+                             source_scores[sid]["total"],
+                             src.get("tier", "?"))
 
         # Detect contradictions
         state.contradictions = self._detect_contradictions(scored, state.claims)
+        logger.info("    contradictions found: %d", len(state.contradictions))
 
         # Build consensus signals
         state.consensus_signals = self._build_consensus(scored, state.claims)
+        for cid, sig in state.consensus_signals.items():
+            logger.info("    [%s] consensus: %d support, %d contradict, %d neutral (ratio=%.2f)",
+                         cid, sig["supporting"], sig["contradicting"],
+                         sig["neutral"], sig["consensus_ratio"])
 
         return state
 

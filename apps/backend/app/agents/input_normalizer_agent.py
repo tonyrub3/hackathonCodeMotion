@@ -47,17 +47,23 @@ class InputNormalizerAgent:
     def _handle_text(self, state: PipelineState) -> PipelineState:
         """Clean and normalize plain-text input."""
         state.normalized_text = clean_text(state.raw_content)
+        logger.info("    input_type=text  chars=%d", len(state.normalized_text))
+        logger.debug("    normalized: %.200s", state.normalized_text)
         return state
 
     async def _handle_url(self, state: PipelineState) -> PipelineState:
         """Fetch URL, extract article, extract metadata."""
         state.source_url = state.raw_content.strip()
+        logger.info("    input_type=url  url=%s", state.source_url)
 
         html = await fetch_url(state.source_url, timeout=self.settings.request_timeout_seconds)
         if not html:
+            logger.error("    FAILED to fetch URL")
             state.errors.append("input_normalizer: failed to fetch URL")
             state.normalized_text = ""
             return state
+
+        logger.info("    fetched HTML: %d chars", len(html))
 
         article = extract_article(html, state.source_url)
         state.normalized_text = clean_text(article.get("text", ""))
@@ -65,8 +71,14 @@ class InputNormalizerAgent:
         state.article_author = article.get("author", "")
         state.article_date = article.get("date", "")
 
+        logger.info("    title:  %s", state.article_title or "(none)")
+        logger.info("    author: %s", state.article_author or "(none)")
+        logger.info("    date:   %s", state.article_date or "(none)")
+        logger.info("    body:   %d chars", len(state.normalized_text))
+
         meta = extract_metadata(html, state.source_url)
         state.article_metadata = meta
         state.cited_links = meta.get("cited_links", [])
+        logger.info("    cited links: %d", len(state.cited_links))
 
         return state

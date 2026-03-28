@@ -55,11 +55,11 @@ class SourceDiscoveryAgent:
 
         for claim in state.claims:
             queries = build_queries(claim, state.topic)
+            logger.info("    [%s] queries: %s", claim["id"], queries)
 
-            # Run discovery channels in parallel (conceptually – sequential in MVP)
             evidence_batch: list[dict[str, Any]] = []
 
-            # 1. Google Fact Check – previously verified claims
+            # 1. Google Fact Check
             try:
                 fc_results = await search_google_factcheck(
                     claim["claim"],
@@ -67,57 +67,65 @@ class SourceDiscoveryAgent:
                     language=state.language,
                 )
                 evidence_batch.extend(fc_results)
+                logger.info("    [%s] Google FactCheck: %d results", claim["id"], len(fc_results))
             except Exception as exc:
-                logger.warning("Google Fact Check failed for claim %s: %s", claim["id"], exc)
+                logger.warning("    [%s] Google FactCheck FAILED: %s", claim["id"], exc)
 
-            # 2. GDELT DOC – live global articles
+            # 2. GDELT DOC
             try:
                 gdelt_results = await search_gdelt_docs(
                     queries,
                     api_url=self.settings.gdelt_doc_api_url,
                 )
                 evidence_batch.extend(gdelt_results)
+                logger.info("    [%s] GDELT DOC: %d results", claim["id"], len(gdelt_results))
             except Exception as exc:
-                logger.warning("GDELT doc search failed for claim %s: %s", claim["id"], exc)
+                logger.warning("    [%s] GDELT DOC FAILED: %s", claim["id"], exc)
 
-            # 3. GDELT Context – quote / context retrieval
+            # 3. GDELT Context
             try:
                 ctx_results = await search_gdelt_context(
                     claim["claim"],
                     api_url=self.settings.gdelt_context_api_url,
                 )
                 evidence_batch.extend(ctx_results)
+                logger.info("    [%s] GDELT Context: %d results", claim["id"], len(ctx_results))
             except Exception as exc:
-                logger.warning("GDELT context search failed for claim %s: %s", claim["id"], exc)
+                logger.warning("    [%s] GDELT Context FAILED: %s", claim["id"], exc)
 
-            # 4. Official source discovery (heuristic-based)
+            # 4. Official source discovery
             try:
                 off_results = await discover_official_sources(claim, state.topic)
                 evidence_batch.extend(off_results)
+                logger.info("    [%s] Official sources: %d results", claim["id"], len(off_results))
             except Exception as exc:
-                logger.warning("Official source discovery failed: %s", exc)
+                logger.warning("    [%s] Official sources FAILED: %s", claim["id"], exc)
 
             # 5. News source discovery
             try:
                 news_results = await discover_news_sources(queries)
                 evidence_batch.extend(news_results)
+                logger.info("    [%s] News sources: %d results", claim["id"], len(news_results))
             except Exception as exc:
-                logger.warning("News source discovery failed: %s", exc)
+                logger.warning("    [%s] News sources FAILED: %s", claim["id"], exc)
 
             # 6. Cited source mining (URL input)
             if state.cited_links:
                 try:
                     cited_results = await mine_cited_sources(state.cited_links, claim)
                     evidence_batch.extend(cited_results)
+                    logger.info("    [%s] Cited sources: %d results", claim["id"], len(cited_results))
                 except Exception as exc:
-                    logger.warning("Cited source mining failed: %s", exc)
+                    logger.warning("    [%s] Cited sources FAILED: %s", claim["id"], exc)
 
             # 7. Official social discovery
             try:
                 social_results = await discover_official_social(claim)
                 evidence_batch.extend(social_results)
             except Exception as exc:
-                logger.warning("Official social discovery failed: %s", exc)
+                logger.warning("    [%s] Social FAILED: %s", claim["id"], exc)
+
+            logger.info("    [%s] TOTAL evidence for claim: %d items", claim["id"], len(evidence_batch))
 
             # Tag evidence with claim id
             for ev in evidence_batch:

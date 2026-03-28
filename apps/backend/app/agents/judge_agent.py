@@ -52,6 +52,10 @@ class JudgeAgent:
         # 1. Compute partial verdicts per claim
         partial_verdicts = self._compute_partial_verdicts(state)
         state.partial_verdicts = partial_verdicts
+        for pv in partial_verdicts:
+            logger.info("    PARTIAL [%s] %s (score=%.1f): %s",
+                         pv["id"], pv["partial_verdict"],
+                         pv["partial_score"], pv["claim"][:60])
 
         # 2. Compute global truth score
         truth_score = compute_truth_score(
@@ -62,6 +66,7 @@ class JudgeAgent:
             site_forensics=state.site_forensics,
         )
         state.truth_score = truth_score
+        logger.info("    truth_score = %.1f", truth_score)
 
         # 3. Compute confidence
         state.confidence_score = compute_confidence(
@@ -70,6 +75,7 @@ class JudgeAgent:
             avg_source_reliability=self._avg_reliability(state.sources_used),
             has_contradictions=len(state.contradictions) > 0,
         )
+        logger.info("    confidence = %.2f", state.confidence_score)
 
         # 4. Map to verdict
         state.verdict = map_verdict(
@@ -79,8 +85,12 @@ class JudgeAgent:
             contradictions=state.contradictions,
         )
 
+        logger.info("    VERDICT = %s", state.verdict)
+
         # 5. Linguistic risk (lightweight)
         state.linguistic_risk = self._assess_linguistic_risk(state.normalized_text)
+        if state.linguistic_risk.get("manipulation_markers"):
+            logger.info("    linguistic risk markers: %s", state.linguistic_risk["manipulation_markers"])
 
         # 6. Build explanation
         state.explanation = build_explanation(
