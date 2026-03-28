@@ -14,7 +14,7 @@ async def run_live_pipeline(
     content: str,
     input_type: str,
     settings: Settings,
-    language: str = "en",
+    language: str = "auto",
     country: str = "",
     topic: str = "",
 ) -> PipelineState:

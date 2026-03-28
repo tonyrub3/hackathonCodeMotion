@@ -74,3 +74,63 @@ def test_truth_score_contradiction_reduces():
     )
 
     assert score_with < score_without
+
+
+def test_truth_score_linguistic_risk_penalty():
+    """Linguistic risk should lower the score when passed in."""
+    evidence = [
+        {
+            "stance": "supporting",
+            "evidence_score": 0.8,
+            "source_reliability_score": 0.8,
+            "published_at": "2026-01-01",
+            "matched_claim_ids": ["c1"],
+        }
+    ]
+    consensus = {"c1": {"consensus_ratio": 1.0}}
+    claims = [{"id": "c1", "claim": "Test", "checkability_score": 0.8}]
+
+    base = compute_truth_score(
+        scored_evidence=evidence,
+        consensus_signals=consensus,
+        claims=claims,
+        contradictions=[],
+    )
+    penalized = compute_truth_score(
+        scored_evidence=evidence,
+        consensus_signals=consensus,
+        claims=claims,
+        contradictions=[],
+        linguistic_risk={"sensationalism_score": 1.0, "attribution_risk": 1.0},
+    )
+
+    assert penalized < base
+
+
+def test_truth_score_explicit_contradiction_penalty():
+    evidence = [
+        {
+            "stance": "neutral",
+            "evidence_score": 0.7,
+            "source_reliability_score": 0.7,
+            "published_at": "2026-01-01",
+            "matched_claim_ids": ["c1"],
+        }
+    ]
+    consensus = {"c1": {"consensus_ratio": 0.5}}
+    claims = [{"id": "c1", "claim": "Test", "checkability_score": 0.7}]
+
+    base = compute_truth_score(
+        scored_evidence=evidence,
+        consensus_signals=consensus,
+        claims=claims,
+        contradictions=[],
+    )
+    penalized = compute_truth_score(
+        scored_evidence=evidence,
+        consensus_signals=consensus,
+        claims=claims,
+        contradictions=[{"claim_id": "c1", "severity": 0.9, "type": "number"}],
+    )
+
+    assert penalized < base

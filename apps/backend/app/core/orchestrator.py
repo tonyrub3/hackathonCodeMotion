@@ -54,7 +54,7 @@ class Orchestrator:
         self,
         content: str,
         input_type: str = "text",
-        language: str = "en",
+        language: str = "auto",
         country: str = "",
         topic: str = "",
         mode: str = "live",

@@ -43,11 +43,17 @@ def compute_truth_score(
 
     # --- Contradiction strength ---
     contradicting = [e for e in scored_evidence if e.get("stance") == "contradicting"]
-    contradiction_strength = (
+    stance_contradiction_strength = (
         sum(e.get("evidence_score", 0.5) for e in contradicting) / max(len(contradicting), 1)
         if contradicting
         else 0.0
     )
+    detected_contradiction_strength = (
+        sum(c.get("severity", 0.0) for c in contradictions) / max(len(contradictions), 1)
+        if contradictions
+        else 0.0
+    )
+    contradiction_strength = max(stance_contradiction_strength, detected_contradiction_strength)
 
     # --- Consensus ---
     consensus_values = [

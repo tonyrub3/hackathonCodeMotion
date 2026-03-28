@@ -20,7 +20,7 @@ class PipelineState:
     request_id: str = ""
     input_type: str = "text"  # "text" | "url"
     raw_content: str = ""
-    language: str = "en"
+    language: str = "auto"
     country: str = ""
     topic: str = ""
     mode: str = "live"  # "live" | "benchmark"

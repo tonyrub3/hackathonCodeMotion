@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 
 async def discover_official_social(
     claim: dict[str, Any],
+    language: str = "en",
 ) -> list[dict[str, Any]]:
     """Discover official social accounts for entities in the claim.
 
@@ -26,4 +27,5 @@ async def discover_official_social(
     Returns evidence-like dicts.
     """
     # TODO: Implement social media account discovery
+    _ = language
     return []

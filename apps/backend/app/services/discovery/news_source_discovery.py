@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 
 async def discover_news_sources(
     queries: list[str],
+    language: str = "en",
 ) -> list[dict[str, Any]]:
     """Discover news sources covering the claim.
 
@@ -28,4 +29,5 @@ async def discover_news_sources(
     """
     # TODO: Integrate with a news search API (e.g., NewsAPI, Bing News, etc.)
     # For now, returns empty – GDELT covers a similar role in the MVP.
+    _ = language
     return []
