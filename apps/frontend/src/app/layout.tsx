@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Truth Engine",
+  title: "Project: Aletheia",
   description: "Explainable, source-traced fact-checking system",
 };
 
@@ -17,8 +17,8 @@ export default function RootLayout({
           margin: 0,
           fontFamily:
             '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-          backgroundColor: "#0f172a",
-          color: "#e2e8f0",
+          backgroundColor: "#ffffff",
+          color: "#000000",
           minHeight: "100vh",
         }}
       >
