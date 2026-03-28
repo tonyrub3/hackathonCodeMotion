@@ -1,0 +1,62 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "VerifyResponse",
+  "type": "object",
+  "properties": {
+    "input_type": { "type": "string" },
+    "mode": { "type": "string" },
+    "claims": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/Claim" }
+    },
+    "sources_used": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/Source" }
+    },
+    "evidence": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/Evidence" }
+    },
+    "contradictions": { "type": "array" },
+    "linguistic_risk": { "type": "object" },
+    "site_forensics": { "type": ["object", "null"] },
+    "truth_score": { "type": "number" },
+    "confidence_score": { "type": "number" },
+    "verdict": { "type": "string" },
+    "explanation": { "type": "object" }
+  },
+  "definitions": {
+    "Claim": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "claim": { "type": "string" },
+        "type": { "type": "string" },
+        "partial_verdict": { "type": "string" },
+        "partial_score": { "type": "number" },
+        "checkability_score": { "type": "number" }
+      }
+    },
+    "Source": {
+      "type": "object",
+      "properties": {
+        "source_id": { "type": "string" },
+        "source_name": { "type": "string" },
+        "source_type": { "type": "string" },
+        "url": { "type": "string" },
+        "tier": { "type": "string" },
+        "source_reliability_score": { "type": "number" },
+        "dimensions": { "type": "object" }
+      }
+    },
+    "Evidence": {
+      "type": "object",
+      "properties": {
+        "source_id": { "type": "string" },
+        "stance": { "type": "string" },
+        "evidence_score": { "type": "number" },
+        "excerpt": { "type": "string" }
+      }
+    }
+  }
+}

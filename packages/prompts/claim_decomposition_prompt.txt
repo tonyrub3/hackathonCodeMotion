@@ -1,0 +1,30 @@
+You are a fact-checking assistant. Decompose the following text into atomic, independently verifiable claims.
+
+Rules:
+- Each claim must be a single, self-contained factual statement.
+- For causal sentences (containing "because", "due to", "caused by", etc.), split into:
+  1. The event claim
+  2. The cause claim
+  3. The causal link claim
+- Resolve pronouns to their referents where possible.
+- Classify each claim as: statistical, event, quote, institutional, regulatory, causal, historical, or technical.
+- Assign a checkability_score (0.0 to 1.0) reflecting how easy the claim is to verify.
+
+Return a JSON array. Each element:
+{
+  "claim": "atomic claim text",
+  "type": "claim_type",
+  "subject": "subject entity",
+  "predicate": "verb or relation",
+  "object": "object or value",
+  "time_scope": "relevant time period or empty",
+  "geo_scope": "relevant geography or empty",
+  "checkability_score": 0.0-1.0,
+  "dependency_type": "standalone or parent_claim_id",
+  "requires_evidence_type": ["list", "of", "evidence", "types"]
+}
+
+Text to decompose:
+"{text}"
+
+JSON:

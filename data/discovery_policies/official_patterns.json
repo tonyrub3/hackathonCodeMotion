@@ -1,0 +1,63 @@
+{
+  "_description": "Generic patterns for identifying likely primary/official sources. These are heuristics, NOT a whitelist.",
+  "tld_patterns": [
+    ".gov",
+    ".gov.it",
+    ".gov.uk",
+    ".gov.de",
+    ".gov.fr",
+    ".europa.eu",
+    ".mil",
+    ".edu",
+    ".int",
+    ".ac.uk",
+    ".gouv.fr"
+  ],
+  "path_patterns": [
+    "/investors",
+    "/investor-relations",
+    "/press",
+    "/press-releases",
+    "/media",
+    "/newsroom",
+    "/official-statements",
+    "/communications",
+    "/statistics",
+    "/data",
+    "/publications",
+    "/reports"
+  ],
+  "institution_patterns": [
+    "ministry",
+    "ministero",
+    "ministerium",
+    "regulator",
+    "authority",
+    "commission",
+    "parliament",
+    "congress",
+    "senate",
+    "bureau",
+    "agency",
+    "institute",
+    "istituto",
+    "office",
+    "department"
+  ],
+  "statistical_office_hints": [
+    "istat",
+    "eurostat",
+    "bls.gov",
+    "census",
+    "statistics",
+    "statistik",
+    "insee"
+  ],
+  "central_bank_hints": [
+    "ecb.europa.eu",
+    "bankofengland",
+    "federalreserve",
+    "bancaditalia",
+    "bundesbank"
+  ]
+}

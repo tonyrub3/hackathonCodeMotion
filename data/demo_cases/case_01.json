@@ -1,0 +1,9 @@
+{
+  "title": "Statistical claim – Italian inflation",
+  "input_type": "text",
+  "content": "The inflation rate in Italy reached 2% in February 2026, according to preliminary ISTAT estimates.",
+  "expected_verdict": "verified",
+  "topic": "economy",
+  "language": "en",
+  "country": "IT"
+}

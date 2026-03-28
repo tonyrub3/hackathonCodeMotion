@@ -1,0 +1,40 @@
+{
+  "_description": "Retrieval logic rules for the source discovery agent.",
+  "default_channels": {
+    "google_factcheck": true,
+    "gdelt_doc": true,
+    "gdelt_context": true,
+    "official_source": true,
+    "news_source": true,
+    "cited_source": true,
+    "official_social": false
+  },
+  "claim_type_overrides": {
+    "statistical": {
+      "official_source": true,
+      "priority": "official_first"
+    },
+    "regulatory": {
+      "official_source": true,
+      "priority": "official_first"
+    },
+    "institutional": {
+      "official_source": true,
+      "priority": "official_first"
+    },
+    "quote": {
+      "gdelt_context": true,
+      "priority": "context_first"
+    },
+    "causal": {
+      "news_source": true,
+      "priority": "broad_coverage"
+    }
+  },
+  "url_input_extras": {
+    "cited_source": true,
+    "always_mine_citations": true
+  },
+  "max_queries_per_channel": 3,
+  "max_results_per_channel": 5
+}
