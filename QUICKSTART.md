@@ -1,204 +1,96 @@
 # Truth Engine – Quick Start
 
-## Prerequisites
+## Requisiti
 
 - Python 3.11+
 - Node.js 18+
 - npm
 
----
-
-## 1. Setup
+## 1. Installazione
 
 ```bash
-# Clone and enter the project
-cd /home/nicola/Documents/truthengine/hackathonCodeMotion
-
-# Create virtual environment and install Python dependencies
+cd /Users/antonio/Desktop/hackathonCodeMotion
 python3 -m venv .venv
 source .venv/bin/activate
-cd apps/backend
-pip install -r requirements.txt
-cd ../..
-
-# Install frontend dependencies
-cd apps/frontend
-npm install
-cd ../..
-
-# Create .env from template
+pip install -r apps/backend/requirements.txt
+cd apps/frontend && npm install && cd ../..
 cp .env.example .env
-# Edit .env and add your API keys
 ```
 
----
+## 2. Configurazione `.env`
 
-## 2. Configure API Keys
-
-Edit `.env` in the project root:
+Variabili minime:
 
 ```env
-REGOLO_API_KEY=your_regolo_key_here
-REGOLO_MODEL=meta-llama/Meta-Llama-3.1-70B-Instruct
-REGOLO_EMBEDDING_API_KEY=your_embedding_key_here
-REGOLO_EMBEDDING_MODEL=Qwen/Qwen3-Embedding-8B
-GOOGLE_FACTCHECK_API_KEY=your_google_key_here   # optional
+REGOLO_API_KEY=your_regolo_key
+REGOLO_BASE_URL=https://api.regolo.ai/v1
+REGOLO_MODEL=Llama-3.3-70B-Instruct
+REGOLO_QUERY_MODEL=Llama-3.3-70B-Instruct
+REGOLO_CLAIM_MODEL=Llama-3.3-70B-Instruct
+REGOLO_CROSSCHECK_MODEL=gpt-oss-120b
+REGOLO_SCORING_MODEL=gpt-oss-120b
+TAVILY_API_KEY=your_tavily_key
+TE_TIMEOUT=0
 ```
 
----
+`TE_TIMEOUT=0` significa nessun timeout lato client.
 
-## 3. Run
+## 3. Avvio del progetto
 
-### Backend (Terminal 1)
+Backend:
 
 ```bash
-cd /home/nicola/Documents/truthengine/hackathonCodeMotion/apps/backend
-source ../../.venv/bin/activate
+source .venv/bin/activate
+cd apps/backend
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-Backend runs at: **http://localhost:8000**
-API docs at: **http://localhost:8000/docs**
-
-### Frontend (Terminal 2)
+Frontend:
 
 ```bash
-cd /home/nicola/Documents/truthengine/hackathonCodeMotion/apps/frontend
+cd apps/frontend
 npm run dev
 ```
 
-Frontend runs at: **http://localhost:3000**
+Indirizzi utili:
+- API: `http://localhost:8000`
+- Docs: `http://localhost:8000/docs`
+- Frontend: `http://localhost:3000`
 
----
-
-## 4. Test via Frontend
-
-1. Open **http://localhost:3000**
-2. Select **Text** or **URL** mode
-3. Enter content to verify
-4. Click **Verify**
-
-### Demo mode (no backend needed)
-
-Check **"Use mock data (demo)"** to see the full UI with sample data.
-
----
-
-## 5. Test via API (curl)
-
-### Health check
+## 4. Test rapido delle API
 
 ```bash
 curl http://localhost:8000/api/health
 ```
 
-### Verify text (Italian)
-
 ```bash
 curl -X POST http://localhost:8000/api/verify \
   -H "Content-Type: application/json" \
   -d '{
     "input_type": "text",
-    "content": "Il tasso di inflazione in Italia ha raggiunto il 2% nel febbraio 2026, secondo le stime ISTAT.",
-    "language": "it",
-    "country": "IT",
-    "topic": "economy"
+    "content": "donald trump è stato ucciso l'\"'\"'anno scorso",
+    "language": "it"
   }'
 ```
-
-### Verify text (English)
-
-```bash
-curl -X POST http://localhost:8000/api/verify \
-  -H "Content-Type: application/json" \
-  -d '{
-    "input_type": "text",
-    "content": "The European Central Bank raised interest rates three times in 2025, causing a 15% drop in retail sales across Southern Europe.",
-    "language": "en",
-    "topic": "economy"
-  }'
-```
-
-### Verify URL
 
 ```bash
 curl -X POST http://localhost:8000/api/verify \
   -H "Content-Type: application/json" \
   -d '{
     "input_type": "url",
-    "content": "https://www.ansa.it/sito/notizie/economia/2026/03/28/example.html",
-    "language": "it",
-    "country": "IT"
+    "content": "https://example.com/article",
+    "language": "it"
   }'
 ```
 
-### Verify with topic hint
+## 5. Test del backend
 
 ```bash
-curl -X POST http://localhost:8000/api/verify \
-  -H "Content-Type: application/json" \
-  -d '{
-    "input_type": "text",
-    "content": "NATO announced a new defense spending target of 3.5% of GDP for all member states.",
-    "language": "en",
-    "topic": "defense"
-  }'
+source .venv/bin/activate
+./.venv/bin/pytest apps/backend/app/tests -q
 ```
 
-### Verify a causal claim
+## 6. Documentazione utile
 
-```bash
-curl -X POST http://localhost:8000/api/verify \
-  -H "Content-Type: application/json" \
-  -d '{
-    "input_type": "text",
-    "content": "Consumer spending declined sharply because the ECB raised interest rates. This caused unemployment to rise to 8% in Spain.",
-    "language": "en",
-    "topic": "economy"
-  }'
-```
-
-### Verify a multi-claim article
-
-```bash
-curl -X POST http://localhost:8000/api/verify \
-  -H "Content-Type: application/json" \
-  -d '{
-    "input_type": "text",
-    "content": "The Italian government approved a new budget of 40 billion euros for 2026. The Ministry of Finance confirmed the allocation includes 5 billion for defense and 8 billion for healthcare. According to ISTAT, GDP growth is expected to reach 1.2% this year. Critics argue the budget does not adequately address the housing crisis.",
-    "language": "en",
-    "country": "IT",
-    "topic": "economy"
-  }'
-```
-
----
-
-## 6. Run Tests
-
-```bash
-cd /home/nicola/Documents/truthengine/hackathonCodeMotion/apps/backend
-source ../../.venv/bin/activate
-python -m pytest app/tests/ -v
-```
-
----
-
-## 7. Pretty-print API response
-
-```bash
-curl -s -X POST http://localhost:8000/api/verify \
-  -H "Content-Type: application/json" \
-  -d '{"input_type": "text", "content": "The pope died yesterday."}' \
-  | python3 -m json.tool
-```
-
----
-
-## 8. Run local verify script (no server needed)
-
-```bash
-cd /home/nicola/Documents/truthengine/hackathonCodeMotion/apps/backend
-source ../../.venv/bin/activate
-python scripts/run_local_verify.py
-```
+- [README.md](README.md)
+- [docs/system_architecture_overview.md](docs/system_architecture_overview.md)
