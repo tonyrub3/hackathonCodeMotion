@@ -88,26 +88,40 @@ def parse_iso_like_date(value: str) -> datetime | None:
 class TavilySearchProfileBuilder:
     """Select Tavily topic/country/time filters from content context."""
 
-    def build(self, state: PipelineState, text: str) -> dict[str, Any]:
-        topic = self.select_tavily_topic(state, text)
-        temporal = self.build_temporal_filters(state, text, topic)
+    def build(
+        self,
+        state: PipelineState,
+        text: str,
+        *,
+        claims: list[dict[str, Any]] | None = None,
+        queries: list[str] | None = None,
+    ) -> dict[str, Any]:
+        topic = self.select_tavily_topic(state, text, claims=claims, queries=queries)
+        temporal = self.build_temporal_filters(state, text, topic, claims=claims, queries=queries)
         return {
             "topic": topic,
             "country": self.select_country_boost(state, topic),
             "temporal": temporal,
         }
 
-    def select_tavily_topic(self, state: PipelineState, text: str) -> str:
+    def select_tavily_topic(
+        self,
+        state: PipelineState,
+        text: str,
+        *,
+        claims: list[dict[str, Any]] | None = None,
+        queries: list[str] | None = None,
+    ) -> str:
         requested = normalize_for_match(state.topic)
         if requested in {"general", "news", "finance"}:
             return requested
         if requested in TOPIC_ALIASES:
             return TOPIC_ALIASES[requested]
 
-        normalized = normalize_for_match(text)
+        normalized = normalize_for_match(self._search_context_text(text, claims=claims, queries=queries))
         if any(marker in normalized for marker in FINANCE_HINTS):
             return "finance"
-        if self.has_recent_signal(state, text) or any(marker in normalized for marker in NEWS_HINTS):
+        if self.has_recent_signal(state, text, claims=claims, queries=queries) or any(marker in normalized for marker in NEWS_HINTS):
             return "news"
         return "general"
 
@@ -122,12 +136,22 @@ class TavilySearchProfileBuilder:
             return ""
         return COUNTRY_ALIASES.get(normalized, normalized)
 
-    def build_temporal_filters(self, state: PipelineState, text: str, topic: str) -> dict[str, str]:
+    def build_temporal_filters(
+        self,
+        state: PipelineState,
+        text: str,
+        topic: str,
+        *,
+        claims: list[dict[str, Any]] | None = None,
+        queries: list[str] | None = None,
+    ) -> dict[str, str]:
         article_dt = parse_iso_like_date(state.article_date)
         now = datetime.now(timezone.utc)
         temporal: dict[str, str] = {}
-        strong_recent = self.has_recent_signal(state, text, strong_only=True)
-        any_recent = strong_recent or self.has_recent_signal(state, text)
+        context_text = self._search_context_text(text, claims=claims, queries=queries)
+        strong_recent = self.has_recent_signal(state, context_text, strong_only=True, claims=claims, queries=queries)
+        any_recent = strong_recent or self.has_recent_signal(state, context_text, claims=claims, queries=queries)
+        explicit_year = self._extract_explicit_year(context_text)
 
         if article_dt:
             age_days = abs((now - article_dt).days)
@@ -136,13 +160,24 @@ class TavilySearchProfileBuilder:
                 temporal["start_date"] = (article_dt - timedelta(days=window_days)).date().isoformat()
                 temporal["end_date"] = (article_dt + timedelta(days=window_days)).date().isoformat()
                 return temporal
+            if explicit_year and str(article_dt.year) == explicit_year and topic in {"news", "finance"}:
+                temporal["time_range"] = "month"
+                return temporal
 
         if topic in {"news", "finance"} and any_recent:
             temporal["time_range"] = "week" if strong_recent else "month"
         return temporal
 
-    def has_recent_signal(self, state: PipelineState, text: str, strong_only: bool = False) -> bool:
-        normalized = normalize_for_match(text)
+    def has_recent_signal(
+        self,
+        state: PipelineState,
+        text: str,
+        strong_only: bool = False,
+        *,
+        claims: list[dict[str, Any]] | None = None,
+        queries: list[str] | None = None,
+    ) -> bool:
+        normalized = normalize_for_match(self._search_context_text(text, claims=claims, queries=queries))
         markers = RECENT_MARKERS_STRONG if strong_only else RECENT_MARKERS_STRONG + RECENT_MARKERS_SOFT
         if any(marker in normalized for marker in markers):
             return True
@@ -157,4 +192,26 @@ class TavilySearchProfileBuilder:
         stripped = (query or "").strip()
         if stripped.startswith('"') and stripped.endswith('"'):
             return True
-        return len(stripped.split()) <= 4 and any(ch.isdigit() for ch in stripped)
+        if len(stripped.split()) <= 4 and any(ch.isdigit() for ch in stripped):
+            return True
+        quoted_entities = sum(1 for token in stripped.split() if token[:1].isupper())
+        return len(stripped.split()) <= 6 and quoted_entities >= 2 and any(ch.isdigit() for ch in stripped)
+
+    def _search_context_text(
+        self,
+        text: str,
+        *,
+        claims: list[dict[str, Any]] | None = None,
+        queries: list[str] | None = None,
+    ) -> str:
+        parts = [text or ""]
+        for claim in claims or []:
+            parts.append(str(claim.get("claim", "")))
+            parts.append(str(claim.get("search_query", "")))
+        for query in queries or []:
+            parts.append(str(query))
+        return " ".join(part for part in parts if part)
+
+    def _extract_explicit_year(self, text: str) -> str:
+        match = re.search(r"\b(19|20)\d{2}\b", text or "")
+        return match.group(0) if match else ""

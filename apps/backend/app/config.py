@@ -22,6 +22,10 @@ class Settings:
     regolo_api_key: str = ""
     regolo_base_url: str = "https://api.regolo.ai/v1"
     regolo_model: str = "regolo/regolo-default"
+    regolo_query_model: str = ""
+    regolo_claim_model: str = ""
+    regolo_crosscheck_model: str = ""
+    regolo_scoring_model: str = ""
     regolo_embedding_api_key: str = ""
     regolo_embedding_model: str = "regolo/embedding-default"
 
@@ -39,7 +43,7 @@ class Settings:
     # Pipeline
     max_claims_per_request: int = 20
     max_evidence_per_claim: int = 10
-    request_timeout_seconds: int = 30
+    request_timeout_seconds: int = 0
     use_alethea_mvp_discovery: bool = True
 
     # CORS
@@ -55,6 +59,10 @@ def load_settings() -> Settings:
         regolo_api_key=os.getenv("REGOLO_API_KEY", ""),
         regolo_base_url=os.getenv("REGOLO_BASE_URL", "https://api.regolo.ai/v1"),
         regolo_model=os.getenv("REGOLO_MODEL", "regolo/regolo-default"),
+        regolo_query_model=os.getenv("REGOLO_QUERY_MODEL", ""),
+        regolo_claim_model=os.getenv("REGOLO_CLAIM_MODEL", ""),
+        regolo_crosscheck_model=os.getenv("REGOLO_CROSSCHECK_MODEL", ""),
+        regolo_scoring_model=os.getenv("REGOLO_SCORING_MODEL", ""),
         regolo_embedding_api_key=os.getenv("REGOLO_EMBEDDING_API_KEY", ""),
         regolo_embedding_model=os.getenv("REGOLO_EMBEDDING_MODEL", "regolo/embedding-default"),
         google_factcheck_api_key=os.getenv("GOOGLE_FACTCHECK_API_KEY", ""),
@@ -63,7 +71,7 @@ def load_settings() -> Settings:
         fever_data_dir=os.getenv("FEVER_DATA_DIR", "data/fever"),
         max_claims_per_request=int(os.getenv("TE_MAX_CLAIMS", "20")),
         max_evidence_per_claim=int(os.getenv("TE_MAX_EVIDENCE", "10")),
-        request_timeout_seconds=int(os.getenv("TE_TIMEOUT", "30")),
+        request_timeout_seconds=int(os.getenv("TE_TIMEOUT", "0")),
         use_alethea_mvp_discovery=os.getenv("TE_USE_ALETHEA_MVP_DISCOVERY", "true").lower() == "true",
         cors_origins=os.getenv("TE_CORS_ORIGINS", "http://localhost:3000").split(","),
     )

@@ -15,6 +15,7 @@ from typing import Any
 
 from app.config import Settings
 from app.core.state import PipelineState
+from app.agents.claim_decomposition_agent import ClaimDecompositionAgent
 from app.agents.input_normalizer_agent import InputNormalizerAgent
 from app.pipeline.tavily_first import TavilyFirstEngine
 from app.utils.pipeline_trace import layer_tag
@@ -28,6 +29,7 @@ class Orchestrator:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
         self.input_normalizer = InputNormalizerAgent(settings)
+        self.claim_decomposition = ClaimDecompositionAgent(settings)
         self.tavily_engine = TavilyFirstEngine(settings)
 
     async def verify(
@@ -60,14 +62,19 @@ class Orchestrator:
 
         steps: list[tuple[str, Any]] = [
             ("input_normalizer", self.input_normalizer),
+            ("claim_decomposition", self.claim_decomposition),
             ("tavily_engine", self.tavily_engine),
         ]
 
         total_t0 = time.time()
         for step_name, agent in steps:
-            icon = "1/2" if step_name == "input_normalizer" else "2/2"
+            order = {
+                "input_normalizer": "1/3",
+                "claim_decomposition": "2/3",
+                "tavily_engine": "3/3",
+            }.get(step_name, "?/?")
             logger.info("")
-            logger.info("%s --- [%s] %s ---", layer_tag("pipeline"), icon, step_name.upper())
+            logger.info("%s --- [%s] %s ---", layer_tag("pipeline"), order, step_name.upper())
             t0 = time.time()
             try:
                 state = await agent.run(state)

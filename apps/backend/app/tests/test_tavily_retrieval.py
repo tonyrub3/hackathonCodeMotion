@@ -112,6 +112,27 @@ def test_search_profile_normalizes_country_for_general_queries() -> None:
     assert profile["country"] == "italy"
 
 
+def test_search_profile_uses_claim_queries_for_recent_url_context() -> None:
+    engine = TavilyFirstEngine(Settings())
+    state = PipelineState(article_date="2026-03-28")
+
+    profile = engine._build_search_profile(
+        state,
+        "Generic article body.",
+        claims=[
+            {
+                "id": "c1",
+                "claim": "Il presidente ha visitato Monaco il 28 marzo 2026.",
+                "search_query": "presidente visita Monaco 28 marzo 2026",
+            }
+        ],
+        queries=["presidente visita Monaco 28 marzo 2026"],
+    )
+
+    assert profile["topic"] == "news"
+    assert profile["temporal"]
+
+
 def test_content_trust_rewards_attribution_and_penalizes_spam() -> None:
     engine = TavilyFirstEngine(Settings())
 
@@ -167,35 +188,63 @@ async def test_run_persists_tavily_results_and_answer_hints(monkeypatch: pytest.
     async def fake_extract(**_: object) -> dict:
         return {"results": []}
 
-    async def fake_generate_queries(self: TavilyFirstEngine, text: str) -> list[str]:
-        return ["alpha beta", "\"rome 2026\""]
+    async def fake_generate_queries(
+        self: TavilyFirstEngine,
+        text: str,
+        claims: list[dict[str, object]] | None = None,
+        state: PipelineState | None = None,
+    ) -> list[str]:
+        return ["alpha beta", '"rome 2026"']
 
     async def fake_cross_check(
         self: TavilyFirstEngine,
         text: str,
         results: list[dict[str, object]],
         search_tier: str,
+        claims: list[dict[str, object]],
     ) -> dict[str, object]:
         return {
             "truth_score": 62,
             "confidence_score": 0.58,
             "verdict": "mixed",
             "explanation": {
-                "summary": "summary",
-                "why": "why",
-                "supporting_evidence": [],
+                "summary": "Le fonti offrono un quadro misto.",
+                "why": "Alcune fonti sono pertinenti, ma il contenuto non e confermato in modo pieno.",
+                "supporting_evidence": ["Una fonte conferma parte del contesto."],
                 "contradicting_evidence": [],
-                "source_analysis": [],
+                "source_analysis": ["example.com: fonte usata nel confronto."],
                 "temporal_context": "",
                 "caveats": [],
             },
-            "per_source": [],
+            "per_source": [
+                {
+                    "source_index": i,
+                    "stance": "supporting",
+                    "relevance": 0.7,
+                    "key_excerpt": "confirmed by sources",
+                }
+                for i in range(len(results))
+            ],
+        }
+
+    async def fake_score_explanation(
+        self: TavilyFirstEngine,
+        explanation: dict[str, object] | None,
+        *,
+        search_tier: str,
+    ) -> dict[str, object]:
+        return {
+            "truth_score": 58,
+            "confidence_score": 0.52,
+            "verdict": "mixed",
+            "reasoning": "Test stub",
         }
 
     monkeypatch.setattr("app.pipeline.tavily_first.tavily_search", fake_search)
     monkeypatch.setattr("app.pipeline.tavily_first.tavily_extract", fake_extract)
     monkeypatch.setattr(TavilyFirstEngine, "_generate_queries", fake_generate_queries)
     monkeypatch.setattr(TavilyFirstEngine, "_cross_check", fake_cross_check)
+    monkeypatch.setattr(TavilyFirstEngine, "_score_explanation", fake_score_explanation)
 
     engine = TavilyFirstEngine(Settings())
     state = PipelineState(normalized_text="Rome 2026 article", country="IT")
@@ -204,14 +253,16 @@ async def test_run_persists_tavily_results_and_answer_hints(monkeypatch: pytest.
     assert state.all_tavily_results
     assert len(state.tavily_answer_hints) == 2
     assert state.tavily_search_profile["country"] == "italy"
-    assert state.generated_queries == ["alpha beta", "\"rome 2026\""]
+    assert state.generated_queries == ["alpha beta", '"rome 2026"']
     assert all(item["_search_country"] == "italy" for item in state.all_tavily_results)
+    assert state.verdict == "mixed"
+    assert 45.0 <= state.truth_score <= 65.0
 
     response = build_response_from_state(state)
     assert response.all_tavily_results
     assert response.tavily_answer_hints
     assert response.tavily_search_profile["country"] == "italy"
-    assert response.generated_queries == ["alpha beta", "\"rome 2026\""]
+    assert response.generated_queries == ["alpha beta", '"rome 2026"']
 
 
 def test_build_response_exposes_url_processing_metadata() -> None:
@@ -235,6 +286,93 @@ def test_build_response_exposes_url_processing_metadata() -> None:
     assert "ansa.it" in response.trusted_domains["news_general"]
 
 
+def test_build_state_preserves_claims_and_uses_llm_judgment() -> None:
+    engine = TavilyFirstEngine(Settings())
+    state = PipelineState(input_type="url")
+    state.claims = [
+        {
+            "id": "c1",
+            "claim": "Il governo italiano ha approvato il decreto energia nel 2026.",
+            "search_query": "decreto energia Italia 2026 approvazione",
+            "type": "policy",
+            "partial_verdict": "insufficient_evidence",
+            "partial_score": 0.0,
+            "checkability_score": 0.90,
+        },
+        {
+            "id": "c2",
+            "claim": "Il decreto prevede incentivi per le imprese energivore.",
+            "search_query": "incentivi imprese energivore decreto energia",
+            "type": "institutional",
+            "partial_verdict": "insufficient_evidence",
+            "partial_score": 0.0,
+            "checkability_score": 0.80,
+        },
+    ]
+
+    results = engine._pre_score_sources(
+        [
+            {
+                "url": "https://reuters.com/world/article",
+                "title": "Italy energy decree 2026",
+                "content": "The Italian government approved the energy decree in 2026, confirming incentives.",
+                "raw_content": "The Italian government approved the energy decree in 2026, confirming incentives.",
+                "score": 0.85,
+            }
+        ],
+        "Il governo italiano ha approvato il decreto energia nel 2026.",
+    )
+    analysis = {
+        "judgment_basis": {
+            "main_claim_confirmed": True,
+            "direct_support_level": "moderate",
+            "contradiction_level": "none",
+            "subject_only_match": False,
+            "evidence_sufficiency": "high",
+            "source_agreement": "high",
+            "temporal_alignment": "strong",
+        },
+        "truth_score": 78,
+        "confidence_score": 0.74,
+        "verdict": "mostly_verified",
+        "explanation": {
+            "summary": "Le fonti piu pertinenti confermano il fatto centrale.",
+            "why": "Il decreto energia risulta confermato dalla fonte principale recuperata.",
+            "supporting_evidence": ["Reuters riferisce dell'approvazione del decreto energia nel 2026."],
+            "contradicting_evidence": [],
+            "source_analysis": ["Reuters: fonte forte e coerente con il testo."],
+            "temporal_context": "I fatti riguardano il 2026.",
+            "caveats": [],
+        },
+        "per_source": [
+            {
+                "source_index": 0,
+                "stance": "supporting",
+                "relevance": 0.88,
+                "key_excerpt": "approved the energy decree in 2026",
+            }
+        ],
+    }
+
+    engine._build_state(state, results, analysis, "tier1", state.claims)
+
+    assert len(state.claims) == 2
+    assert state.claims[0]["id"] == "c1"
+    assert state.claims[1]["id"] == "c2"
+    assert state.verdict in {"mostly_verified", "verified"}
+    assert state.truth_score >= 65.0
+    assert state.confidence_score >= 0.55
+    assert state.explanation.get("summary") == "Le fonti piu pertinenti confermano il fatto centrale."
+    assert "supporting_evidence" in state.explanation
+    assert "source_analysis" in state.explanation
+    assert state.consensus_signals["judgment_basis"]["direct_support_level"] == "moderate"
+
+    response = build_response_from_state(state)
+    assert len(response.claims) == 2
+    assert response.claims[0].id == "c1"
+    assert response.claims[0].checkability_score == 0.90
+
+
 def test_build_state_exposes_domain_content_and_claim_relevance_dimensions() -> None:
     engine = TavilyFirstEngine(Settings())
     state = PipelineState()
@@ -251,10 +389,27 @@ def test_build_state_exposes_domain_content_and_claim_relevance_dimensions() -> 
         "The 2026 market reaction in Rome was confirmed.",
     )
     analysis = {
+        "judgment_basis": {
+            "main_claim_confirmed": False,
+            "direct_support_level": "weak",
+            "contradiction_level": "none",
+            "subject_only_match": False,
+            "evidence_sufficiency": "medium",
+            "source_agreement": "medium",
+            "temporal_alignment": "medium",
+        },
         "truth_score": 55,
         "confidence_score": 0.5,
         "verdict": "mixed",
-        "explanation": {},
+        "explanation": {
+            "summary": "Le fonti danno un riscontro parziale.",
+            "why": "Il contenuto ha copertura solo parziale.",
+            "supporting_evidence": [],
+            "contradicting_evidence": [],
+            "source_analysis": [],
+            "temporal_context": "",
+            "caveats": [],
+        },
         "per_source": [
             {
                 "source_index": 0,
@@ -265,10 +420,191 @@ def test_build_state_exposes_domain_content_and_claim_relevance_dimensions() -> 
         ],
     }
 
-    engine._build_state(state, results, analysis, "tier1")
+    claims = [{"id": "c0", "claim": "The 2026 market reaction in Rome was confirmed.", "type": "other", "checkability_score": 0.5}]
+    engine._build_state(state, results, analysis, "tier1", claims)
 
     dims = state.sources_used[0]["dimensions"]
     assert "domain_trust" in dims
     assert "content_trust" in dims
     assert "claim_relevance" in dims
     assert state.sources_used[0]["source_reliability_score"] != dims["claim_relevance"]
+
+
+def test_guardrails_block_positive_verdict_without_supporting_sources() -> None:
+    engine = TavilyFirstEngine(Settings())
+    state = PipelineState()
+    results = engine._pre_score_sources(
+        [
+            {
+                "url": "https://example.com/story",
+                "title": "Generic context article",
+                "content": "The article talks about the subject but does not confirm the main fact.",
+                "raw_content": "The article talks about the subject but does not confirm the main fact.",
+                "score": 0.61,
+            }
+        ],
+        "Main fact that should not be over-verified.",
+    )
+    analysis = {
+        "judgment_basis": {
+            "main_claim_confirmed": False,
+            "direct_support_level": "none",
+            "contradiction_level": "none",
+            "subject_only_match": True,
+            "evidence_sufficiency": "low",
+            "source_agreement": "low",
+            "temporal_alignment": "weak",
+        },
+        "truth_score": 88,
+        "confidence_score": 0.91,
+        "verdict": "verified",
+        "explanation": {
+            "summary": "Le fonti sono molto forti.",
+            "why": "Il modello avrebbe dato un giudizio troppo positivo.",
+            "supporting_evidence": [],
+            "contradicting_evidence": [],
+            "source_analysis": [],
+            "temporal_context": "",
+            "caveats": [],
+        },
+        "per_source": [
+            {
+                "source_index": 0,
+                "stance": "neutral",
+                "relevance": 0.72,
+                "key_excerpt": "talks about the subject but not the predicate",
+            }
+        ],
+    }
+
+    engine._build_state(state, results, analysis, "tier1", [{"id": "c0", "claim": "Main fact", "type": "other", "checkability_score": 0.5}])
+
+    assert state.verdict == "insufficient_evidence"
+    assert state.confidence_score <= 0.45
+    assert state.truth_score <= 59.0
+
+
+def test_score_is_derived_from_judgment_basis_not_raw_llm_score() -> None:
+    engine = TavilyFirstEngine(Settings())
+    state = PipelineState()
+    results = engine._pre_score_sources(
+        [
+            {
+                "url": "https://example.com/story",
+                "title": "Subject-only article",
+                "content": "This article mentions the subject but never confirms the main predicate.",
+                "raw_content": "This article mentions the subject but never confirms the main predicate.",
+                "score": 0.79,
+            }
+        ],
+        "Claim to verify",
+    )
+    analysis = {
+        "judgment_basis": {
+            "main_claim_confirmed": False,
+            "direct_support_level": "none",
+            "contradiction_level": "weak",
+            "subject_only_match": True,
+            "evidence_sufficiency": "low",
+            "source_agreement": "low",
+            "temporal_alignment": "medium",
+        },
+        "truth_score": 97,
+        "confidence_score": 0.99,
+        "verdict": "verified",
+        "explanation": {
+            "summary": "Le fonti parlano soprattutto del soggetto.",
+            "why": "Il fatto principale non e confermato in modo diretto.",
+            "supporting_evidence": [],
+            "contradicting_evidence": [],
+            "source_analysis": [],
+            "temporal_context": "",
+            "caveats": [],
+        },
+        "per_source": [
+            {
+                "source_index": 0,
+                "stance": "neutral",
+                "relevance": 0.71,
+                "key_excerpt": "mentions the subject",
+            }
+        ],
+    }
+
+    engine._build_state(state, results, analysis, "tier1", [{"id": "c0", "claim": "Claim to verify", "type": "other", "checkability_score": 0.5}])
+
+    assert state.verdict == "insufficient_evidence"
+    assert state.truth_score < 60.0
+    assert state.confidence_score < 0.5
+
+
+def test_guardrails_downgrade_when_explanation_denies_confirmation() -> None:
+    engine = TavilyFirstEngine(Settings())
+    state = PipelineState()
+    results = engine._pre_score_sources(
+        [
+            {
+                "url": "https://apnews.com/story",
+                "title": "Article about the subject",
+                "content": "The article mentions the subject but not the alleged death.",
+                "raw_content": "The article mentions the subject but not the alleged death.",
+                "score": 0.83,
+            }
+        ],
+        "donald trump è stato ucciso l'anno scorso",
+    )
+    analysis = {
+        "judgment_basis": {
+            "main_claim_confirmed": False,
+            "direct_support_level": "weak",
+            "contradiction_level": "weak",
+            "subject_only_match": True,
+            "evidence_sufficiency": "low",
+            "source_agreement": "low",
+            "temporal_alignment": "weak",
+        },
+        "truth_score": 100,
+        "confidence_score": 1.0,
+        "verdict": "mostly_verified",
+        "explanation": {
+            "summary": "Le fonti non confermano il claim principale.",
+            "why": "Le fonti citate parlano del soggetto ma non confermano che sia stato ucciso l'anno scorso.",
+            "supporting_evidence": [],
+            "contradicting_evidence": ["Le fonti non confermano l'affermazione principale."],
+            "source_analysis": ["AP News menziona Donald Trump ma non conferma il presunto evento."],
+            "temporal_context": "",
+            "caveats": ["Evidenza insufficiente sul fatto principale."],
+        },
+        "per_source": [
+            {
+                "source_index": 0,
+                "stance": "supporting",
+                "relevance": 0.74,
+                "key_excerpt": "mentions the subject",
+            }
+        ],
+    }
+
+    engine._build_state(state, results, analysis, "tier1", [{"id": "c0", "claim": "donald trump è stato ucciso l'anno scorso", "type": "other", "checkability_score": 0.5}])
+
+    assert state.verdict in {"insufficient_evidence", "mostly_false"}
+    assert state.confidence_score <= 0.45
+    assert state.truth_score < 60.0
+
+
+def test_url_claims_use_search_queries_not_raw_text() -> None:
+    """Claims should use their LLM-composed search_query for Tavily, not raw claim text."""
+    engine = TavilyFirstEngine(Settings())
+    state = PipelineState(input_type="url")
+    state.claims = [
+        {"id": "c1", "claim": "Il Papa ha visitato Roma nel 2026.", "search_query": "Papa Francesco visita Roma 2026", "type": "event", "checkability_score": 0.9},
+        {"id": "c2", "claim": "L'incontro e durato 3 ore.", "search_query": "incontro Papa Roma durata", "type": "event", "checkability_score": 0.7},
+    ]
+
+    queries = [c.get("search_query") or c["claim"][:80] for c in state.claims]
+    assert queries == [
+        "Papa Francesco visita Roma 2026",
+        "incontro Papa Roma durata",
+    ]
+    for q in queries:
+        assert len(q) < len(state.claims[0]["claim"])

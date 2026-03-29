@@ -5,6 +5,7 @@ from __future__ import annotations
 
 LAYER_LABELS = {
     "input": "INPUT",
+    "claims": "CLAIMS",
     "query": "QUERY",
     "retrieval": "RETRIEVAL",
     "scoring": "SCORING",

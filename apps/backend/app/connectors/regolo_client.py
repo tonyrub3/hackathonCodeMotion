@@ -18,7 +18,7 @@ class RegoloClient:
         base_url: str | None = None,
         llm_model: str | None = None,
         embedding_model: str | None = None,
-        timeout_seconds: float = 30.0,
+        timeout_seconds: float | None = None,
     ) -> None:
         self.api_key = api_key or os.getenv("REGOLO_API_KEY", "")
         self.base_url = (base_url or os.getenv("REGOLO_BASE_URL", "https://api.regolo.ai/v1")).rstrip("/")
@@ -43,7 +43,7 @@ class RegoloClient:
     ) -> str:
         """Generate text using a chat-completions compatible endpoint."""
         if not self.api_key or not self.llm_model:
-            return ""
+            raise RuntimeError("Regolo client is not configured with api key and model")
 
         messages: list[dict[str, str]] = []
         if system_prompt:
@@ -70,8 +70,10 @@ class RegoloClient:
 
     async def embed_texts(self, texts: list[str]) -> list[list[float]]:
         """Generate vector embeddings for a batch of texts."""
-        if not self.api_key or not self.embedding_model or not texts:
+        if not texts:
             return []
+        if not self.api_key or not self.embedding_model:
+            raise RuntimeError("Regolo embedding client is not configured with api key and model")
 
         payload = {
             "model": self.embedding_model,

@@ -101,6 +101,24 @@ export function PipelineLogPanel({ result }: PipelineLogPanelProps) {
           )}
         </LogSection>
 
+        <LogSection title="[CLAIMS]" accent="#14b8a6">
+          <LogRow label="Extracted claims" value={String(result.claims.length)} />
+          {result.claims.length > 0 ? (
+            <Subsection title="Claim decomposition">
+              {result.claims.map((claim) => (
+                <TraceCard
+                  key={claim.id}
+                  title={`${claim.id} · ${claim.type}`}
+                  subtitle={`checkability ${(claim.checkability_score * 100).toFixed(0)}%`}
+                  body={claim.claim}
+                />
+              ))}
+            </Subsection>
+          ) : (
+            <MutedText>No claim decomposition available for this input.</MutedText>
+          )}
+        </LogSection>
+
         <LogSection title="[QUERY]" accent="#22c55e">
           <LogRow label="Generated queries" value={String(result.generated_queries.length)} />
           {result.generated_queries.length > 0 ? (

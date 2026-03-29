@@ -22,18 +22,17 @@ async def tavily_extract(
     chunks_per_source: int = 3,
     extract_depth: str = "advanced",
     output_format: str = "text",
-    timeout_seconds: float = 25.0,
+    timeout_seconds: float | None = None,
 ) -> dict[str, Any]:
     """Extract content from selected URLs using Tavily.
 
-    Returns an empty successful payload when the API key is missing.
+    Raises on configuration or network errors.
     """
     api_key = os.getenv("TAVILY_API_KEY", "")
-    if not api_key or not urls:
+    if not urls:
         return {"results": []}
-
-    if _TAVILY_EXTRACT_BREAKER.is_open():
-        return {"results": [], "degraded": True, "reason": "tavily_extract_circuit_open"}
+    if not api_key:
+        raise RuntimeError("Tavily extract is not configured with an API key")
 
     payload: dict[str, Any] = {
         "api_key": api_key,
@@ -56,14 +55,10 @@ async def tavily_extract(
     if cached is not None:
         return cached
 
-    try:
-        async with httpx.AsyncClient(timeout=timeout_seconds) as client:
-            response = await client.post(TAVILY_EXTRACT_URL, json=payload)
-            response.raise_for_status()
-            data = response.json()
-    except Exception:
-        _TAVILY_EXTRACT_BREAKER.record_failure()
-        return {"results": [], "degraded": True, "reason": "tavily_extract_failed"}
+    async with httpx.AsyncClient(timeout=timeout_seconds) as client:
+        response = await client.post(TAVILY_EXTRACT_URL, json=payload)
+        response.raise_for_status()
+        data = response.json()
 
     _TAVILY_EXTRACT_BREAKER.record_success()
 

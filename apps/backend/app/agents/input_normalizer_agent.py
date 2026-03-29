@@ -70,12 +70,13 @@ class InputNormalizerAgent:
         state.source_url = state.raw_content.strip()
         logger.info("%s input_type=url url=%s", layer_tag("input"), state.source_url)
 
-        html = await fetch_url(state.source_url, timeout=self.settings.request_timeout_seconds)
+        html = await fetch_url(
+            state.source_url,
+            timeout=None if self.settings.request_timeout_seconds <= 0 else self.settings.request_timeout_seconds,
+        )
         if not html:
             logger.error("%s failed_to_fetch_url", layer_tag("input"))
-            state.errors.append("input_normalizer: failed to fetch URL")
-            state.normalized_text = ""
-            return state
+            raise RuntimeError("input_normalizer: failed to fetch URL")
 
         logger.info("%s fetched_html_chars=%d", layer_tag("input"), len(html))
 

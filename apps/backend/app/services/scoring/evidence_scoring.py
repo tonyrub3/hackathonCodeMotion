@@ -19,7 +19,10 @@ class EvidenceScoringLayer:
         analysis: dict[str, Any],
         search_tier: str,
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
-        per_source = {ps.get("source_index", -1): ps for ps in analysis.get("per_source", [])}
+        per_source_map = {
+            ps.get("source_index", -1): ps
+            for ps in analysis.get("per_source", [])
+        }
         sources_used: list[dict[str, Any]] = []
         scored_evidence: list[dict[str, Any]] = []
         contradictions: list[dict[str, Any]] = []
@@ -34,10 +37,17 @@ class EvidenceScoringLayer:
             sid = f"s{i+1}"
             is_primary = result.get("_tier") != "tier2" and search_tier != "tier2"
 
-            per_source_row = per_source.get(i, {})
-            llm_relevance = float(per_source_row.get("relevance", result.get("_local_relevance", result.get("score", 0.5))))
+            ps_row = per_source_map.get(i, {})
+            per_claim_list = ps_row.get("per_claim", [])
+            direct_relevance = float(ps_row.get("relevance", 0.0))
+            direct_stance = str(ps_row.get("stance", "neutral"))
+            direct_excerpt = str(ps_row.get("key_excerpt", ""))
+
+            # Aggregate relevance across claims for this source, or use direct per-source relevance
+            relevances = [float(pc.get("relevance", 0.0)) for pc in per_claim_list]
+            avg_relevance = sum(relevances) / len(relevances) if relevances else direct_relevance
             local_relevance = float(result.get("_local_relevance", 0.0))
-            claim_relevance = round(min(1.0, 0.65 * llm_relevance + 0.35 * local_relevance), 3)
+            claim_relevance = round(min(1.0, 0.65 * avg_relevance + 0.35 * local_relevance), 3)
 
             sources_used.append(
                 {
@@ -58,25 +68,48 @@ class EvidenceScoringLayer:
                 }
             )
 
-            stance = per_source_row.get("stance", "neutral")
-            excerpt = per_source_row.get("key_excerpt", "") or (result.get("content") or "")[:300]
+            # Determine dominant stance across claims
+            stances = [pc.get("stance", "neutral") for pc in per_claim_list]
+            if "contradicting" in stances or direct_stance == "contradicting":
+                dominant_stance = "contradicting"
+            elif "supporting" in stances or direct_stance == "supporting":
+                dominant_stance = "supporting"
+            else:
+                dominant_stance = "neutral"
+
+            # Best excerpt from per_claim entries
+            excerpts = [pc.get("key_excerpt", "") for pc in per_claim_list if pc.get("key_excerpt")]
+            excerpt = excerpts[0] if excerpts else direct_excerpt or (result.get("content") or "")[:300]
+
+            evidence_score = round(0.45 * claim_relevance + 0.35 * source_reliability + 0.20 * float(result.get("score", 0.5)), 3)
             scored_evidence.append(
                 {
                     "source_id": sid,
-                    "stance": stance,
-                    "evidence_score": round(0.45 * claim_relevance + 0.35 * source_reliability + 0.20 * float(result.get("score", 0.5)), 3),
+                    "stance": dominant_stance,
+                    "evidence_score": evidence_score,
                     "excerpt": excerpt[:400],
                 }
             )
 
-            if stance == "contradicting":
-                contradictions.append(
-                    {
-                        "claim_id": "",
-                        "type": "source_conflict",
-                        "description": f"{domain}: {excerpt[:200]}",
-                        "severity": round(claim_relevance * source_reliability, 2),
-                    }
-                )
+            if dominant_stance == "contradicting":
+                if not per_claim_list:
+                    contradictions.append(
+                        {
+                            "claim_id": "",
+                            "type": "source_conflict",
+                            "description": f"{domain}: {excerpt[:200]}",
+                            "severity": round(max(direct_relevance, 0.5) * source_reliability, 2),
+                        }
+                    )
+                for pc in per_claim_list:
+                    if pc.get("stance") == "contradicting":
+                        contradictions.append(
+                            {
+                                "claim_id": pc.get("claim_id", ""),
+                                "type": "source_conflict",
+                                "description": f"{domain}: {pc.get('key_excerpt', '')[:200]}",
+                                "severity": round(float(pc.get("relevance", 0.5)) * source_reliability, 2),
+                            }
+                        )
 
         return sources_used, scored_evidence, contradictions

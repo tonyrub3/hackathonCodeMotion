@@ -12,6 +12,7 @@ from app.services.retrieval.domain_policy import TRUSTED_DOMAINS
 class ClaimResponse(BaseModel):
     id: str
     claim: str
+    search_query: str = ""
     type: str = "event"
     partial_verdict: str = "insufficient_evidence"
     partial_score: float = 0.0
@@ -87,6 +88,7 @@ def build_response_from_state(state: PipelineState) -> VerifyResponse:
         ClaimResponse(
             id=c.get("id", ""),
             claim=c.get("claim", ""),
+            search_query=c.get("search_query", ""),
             type=c.get("type", "event"),
             partial_verdict=c.get("partial_verdict", "insufficient_evidence"),
             partial_score=c.get("partial_score", 0.0),

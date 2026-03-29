@@ -8,15 +8,18 @@ In pratica:
 
 1. riceve un input testuale o un URL
 2. normalizza il contenuto
-3. genera query di ricerca
-4. interroga Tavily per trovare fonti web
-5. arricchisce e pre-scora le fonti trovate
-6. usa un modello LLM tramite Regolo per confrontare il testo con le evidenze raccolte
-7. costruisce una risposta strutturata con verdict, score, fonti ed explanation
+3. se l'input e un URL, estrae fino a 10 claim atomici centrali dall'articolo
+4. per URL: usa ogni claim come query di ricerca; per testo: genera query con LLM
+5. interroga Tavily per trovare fonti web (cascade tier1 -> tier2)
+6. arricchisce e pre-scora le fonti trovate
+7. usa un modello LLM tramite Regolo per estrarre segnali strutturati per-claim per-fonte (stance, relevance, excerpt)
+8. calcola score deterministici per ogni claim (supporting vs contradicting weight)
+9. aggrega i claim-level score in un verdict documento con scoring probabilistico
+10. costruisce una risposta strutturata con verdict, score, fonti ed explanation in italiano
 
-Il sistema attuale verifica il testo come blocco unico.
-
-Non c'e ancora una pipeline claim-by-claim completa: non scompone il contenuto in claim atomici e non assegna verdict separati per ogni claim.
+Il sistema verifica gli articoli URL per singolo claim.
+Ogni claim viene cercato individualmente, ogni fonte viene valutata per ogni claim che tratta,
+e il verdict finale e calcolato deterministicamente dai segnali strutturati (non dall'LLM).
 
 ---
 
@@ -52,6 +55,7 @@ Client / Frontend
     -> POST /api/verify
     -> Orchestrator
         -> InputNormalizerAgent
+        -> ClaimDecompositionAgent (URL only)
         -> TavilyFirstEngine
             -> QueryPlanningAgent
             -> TavilySearchProfileBuilder
@@ -79,6 +83,7 @@ I principi pratici oggi sono:
 - Tavily e il motore di recall principale
 - Regolo e il provider LLM principale
 - il motore non e piu un file monolitico puro: alcune responsabilita sono state estratte in layer dedicati
+- sugli URL il retrieval e ora guidato dai claim estratti dall'articolo, non solo dal testo completo
 - lo scoring delle fonti e separato dal cross-check LLM
 - la pipeline resta lineare e facilmente debuggabile tramite `PipelineState`
 
@@ -95,6 +100,7 @@ Questo contiene:
 - dati input
 - testo normalizzato
 - metadati articolo
+- claim estratti per URL
 - query generate
 - risultati Tavily grezzi
 - answer hints Tavily
@@ -154,7 +160,34 @@ Serve solo a trasformare l'input grezzo in testo usabile dal resto della pipelin
 
 ---
 
-## Step 2: Query planning
+## Step 2: Claim decomposition (solo URL)
+
+### Responsabile
+
+- `apps/backend/app/agents/claim_decomposition_agent.py`
+
+### Cosa fa
+
+Quando l'input e un URL:
+
+- prende il testo dell'articolo gia estratto
+- usa Regolo per estrarre fino a 5 claim atomici e verificabili
+- salva claim, tipo e `checkability_score`
+- se l'LLM fallisce, usa un fallback sentence-based
+
+### Output principali
+
+- `state.claims`
+
+### Nota importante
+
+Questo e il primo layer claim-centric della pipeline.
+
+Serve a migliorare il retrieval, non produce ancora verdict claim-by-claim.
+
+---
+
+## Step 3: Query planning
 
 ### Responsabile
 
@@ -163,6 +196,12 @@ Serve solo a trasformare l'input grezzo in testo usabile dal resto della pipelin
 ### Cosa fa
 
 Usa Regolo per trasformare il testo da verificare in query di ricerca.
+
+Se sono gia presenti claim estratti:
+
+- prioritizza quei claim
+- usa i claim come base per costruire query migliori
+- in fallback usa direttamente il testo dei claim invece del testo intero
 
 Il prompt chiede di:
 
@@ -191,6 +230,8 @@ Se l'LLM fallisce:
 ---
 
 ## Step 3: Search profile building
+
+## Step 4: Search profile building
 
 ### Responsabile
 
@@ -230,7 +271,7 @@ Per la finestra temporale:
 
 ---
 
-## Step 4: Retrieval con Tavily
+## Step 5: Retrieval con Tavily
 
 ### Responsabile
 
@@ -282,7 +323,7 @@ Il sistema usa:
 
 ---
 
-## Step 5: Content enrichment
+## Step 6: Content enrichment
 
 ### Responsabile
 
@@ -304,7 +345,7 @@ Questo step migliora la qualita del materiale poi inviato al cross-check LLM.
 
 ---
 
-## Step 6: Source pre-scoring
+## Step 7: Source pre-scoring
 
 ### Responsabile
 
@@ -365,7 +406,7 @@ E solo un pre-ranking delle fonti prima del cross-check LLM.
 
 ---
 
-## Step 7: Cross-check LLM
+## Step 8: Cross-check LLM
 
 ### Responsabile
 
@@ -418,7 +459,7 @@ Se il modello fallisce o il parsing JSON fallisce:
 
 ---
 
-## Step 8: Evidence scoring e assembly finale
+## Step 9: Evidence scoring e assembly finale
 
 ### Responsabile
 
@@ -480,7 +521,7 @@ Il motore poi:
 
 ---
 
-## Step 9: Response API
+## Step 10: Response API
 
 ### Responsabile
 
@@ -542,17 +583,18 @@ Questo aiuta a capire subito:
 2. La route crea Orchestrator
 3. Orchestrator inizializza PipelineState
 4. InputNormalizerAgent pulisce testo o estrae contenuto da URL
-5. TavilyFirstEngine prende il testo normalizzato
-6. QueryPlanningAgent genera query con Regolo
-7. TavilySearchProfileBuilder decide topic/country/temporal filters
-8. Tavily search esegue retrieval in parallelo
-9. Se necessario, Tavily extract arricchisce i contenuti
-10. SourceScoringLayer pre-scora le fonti
-11. CrossCheckAnalysisLayer invia testo + fonti a Regolo
-12. EvidenceScoringLayer costruisce fonti finali, evidence e contraddizioni
-13. TavilyFirstEngine completa verdict, confidence, explanation e linguistic risk
-14. build_response_from_state converte tutto nella response pubblica
-15. FastAPI restituisce il JSON finale
+5. Se l'input e un URL, ClaimDecompositionAgent estrae claim atomici
+6. TavilyFirstEngine prende il testo normalizzato
+7. QueryPlanningAgent genera query con Regolo, usando i claim se disponibili
+8. TavilySearchProfileBuilder decide topic/country/temporal filters
+9. Tavily search esegue retrieval in parallelo
+10. Se necessario, Tavily extract arricchisce i contenuti
+11. SourceScoringLayer pre-scora le fonti
+12. CrossCheckAnalysisLayer invia testo + fonti a Regolo
+13. EvidenceScoringLayer costruisce fonti finali, evidence e contraddizioni
+14. TavilyFirstEngine completa verdict, confidence, explanation e linguistic risk
+15. build_response_from_state converte tutto nella response pubblica
+16. FastAPI restituisce il JSON finale
 ```
 
 ---
@@ -561,8 +603,9 @@ Questo aiuta a capire subito:
 
 Gli step che usano davvero Regolo oggi sono:
 
-1. `QueryPlanningAgent`
-2. `CrossCheckAnalysisLayer`
+1. `ClaimDecompositionAgent`
+2. `QueryPlanningAgent`
+3. `CrossCheckAnalysisLayer`
 
 Scelta architetturale:
 
@@ -572,6 +615,7 @@ Scelta architetturale:
 Questo significa che:
 
 - query planning e AI-assisted
+- claim decomposition per URL e AI-assisted
 - cross-check e AI-assisted
 - source scoring non e affidato direttamente al modello
 - verdict finale non e interamente delegato a un agente autonomo
@@ -583,18 +627,21 @@ Questo significa che:
 1. gestisce sia testo che URL
 2. usa retrieval web reale
 3. conserva i risultati Tavily grezzi
-4. tiene separati search profile, source scoring e cross-check
-5. restituisce explanation, fonti e timings
-6. ha fallback quando l'LLM fallisce
-7. ha log leggibili per layer
+4. sugli URL estrae claim prima del retrieval
+5. tiene separati search profile, source scoring e cross-check
+6. restituisce explanation, fonti e timings
+7. ha fallback quando l'LLM fallisce
+8. ha log leggibili per layer
 
 ---
 
 ## Limiti attuali importanti
 
-### 1. Verifica whole-text, non claim-centric
+### 1. Verifica finale ancora whole-text
 
 Il sistema confronta il testo nel suo complesso contro le fonti.
+
+Sugli URL il retrieval e guidato dai claim, ma il verdict finale non e ancora calcolato claim-by-claim.
 
 Questo puo creare errori quando:
 
@@ -630,8 +677,8 @@ La pipeline e piu modulare di prima, ma non e ancora un sistema con consistency 
 Se si vuole far evolvere questa architettura senza rompere cio che gia funziona, i prossimi step naturali sono:
 
 1. introdurre `SourceForensicsAgent`
-2. introdurre claim decomposition per URL lunghi
-3. introdurre claim-level evidence linking
+2. introdurre claim-level evidence linking
+3. aggiungere verdict parziali per claim
 4. aggiungere un consistency layer tra cross-check e verdict finale
 5. ridurre ancora il peso residuo di `tavily_first.py`
 
@@ -645,6 +692,7 @@ Il workflow reale e:
 
 ```text
 normalize input
+-> decompose URL claims
 -> plan queries
 -> build Tavily search profile
 -> retrieve sources

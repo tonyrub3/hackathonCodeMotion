@@ -31,18 +31,15 @@ async def tavily_search(
     include_raw_content: bool | str = False,
     auto_parameters: bool = False,
     exact_match: bool = False,
-    timeout_seconds: float = 20.0,
+    timeout_seconds: float | None = None,
 ) -> dict[str, Any]:
     """Search Tavily and return raw results payload.
 
-    Returns an empty successful payload when the API key is missing.
+    Raises on configuration or network errors.
     """
     api_key = os.getenv("TAVILY_API_KEY", "")
     if not api_key:
-        return {"results": []}
-
-    if _TAVILY_BREAKER.is_open():
-        return {"results": [], "degraded": True, "reason": "tavily_circuit_open"}
+        raise RuntimeError("Tavily search is not configured with an API key")
 
     payload: dict[str, Any] = {
         "api_key": api_key,
@@ -83,14 +80,10 @@ async def tavily_search(
     if cached is not None:
         return cached
 
-    try:
-        async with httpx.AsyncClient(timeout=timeout_seconds) as client:
-            response = await client.post(TAVILY_SEARCH_URL, json=payload)
-            response.raise_for_status()
-            data = response.json()
-    except Exception:
-        _TAVILY_BREAKER.record_failure()
-        return {"results": [], "degraded": True, "reason": "tavily_search_failed"}
+    async with httpx.AsyncClient(timeout=timeout_seconds) as client:
+        response = await client.post(TAVILY_SEARCH_URL, json=payload)
+        response.raise_for_status()
+        data = response.json()
 
     _TAVILY_BREAKER.record_success()
 
