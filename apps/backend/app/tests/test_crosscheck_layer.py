@@ -19,6 +19,19 @@ class DummyLLM:
         return self.response
 
 
+class SequenceLLM:
+    def __init__(self, responses: list[str | Exception]) -> None:
+        self.responses = list(responses)
+        self.calls: list[dict[str, object]] = []
+
+    async def generate_text(self, **kwargs: object) -> str:
+        self.calls.append(kwargs)
+        response = self.responses.pop(0)
+        if isinstance(response, Exception):
+            raise response
+        return response
+
+
 @pytest.mark.asyncio
 async def test_crosscheck_layer_parses_global_judgment_json() -> None:
     llm = DummyLLM(
@@ -116,3 +129,49 @@ async def test_crosscheck_layer_raises_when_llm_fails() -> None:
             "tier1",
             claims=claims,
         )
+
+
+@pytest.mark.asyncio
+async def test_crosscheck_layer_repairs_non_json_output_with_second_llm_pass() -> None:
+    llm = SequenceLLM(
+        [
+            "Le fonti principali non concordano del tutto. Verdict: mixed.",
+            """
+            {
+              "judgment_basis": {
+                "main_claim_confirmed": false,
+                "direct_support_level": "weak",
+                "contradiction_level": "weak",
+                "subject_only_match": true,
+                "evidence_sufficiency": "low",
+                "source_agreement": "low",
+                "temporal_alignment": "medium"
+              },
+              "truth_score": 34,
+              "confidence_score": 0.42,
+              "verdict": "insufficient_evidence",
+              "explanation": {
+                "summary": "Le fonti non confermano in modo sufficiente il claim.",
+                "why": "Le fonti parlano del contesto ma non provano il fatto centrale.",
+                "supporting_evidence": [],
+                "contradicting_evidence": [],
+                "source_analysis": ["Reuters: fonte pertinente ma non conclusiva."],
+                "temporal_context": "",
+                "caveats": ["Evidenza limitata."]
+              },
+              "per_source": []
+            }
+            """,
+        ]
+    )
+    layer = CrossCheckAnalysisLayer(llm)
+
+    result = await layer.run(
+        "Example claim",
+        [{"url": "https://reuters.com/story", "title": "Title", "content": "Body", "score": 0.8}],
+        "tier1",
+    )
+
+    assert result["verdict"] == "insufficient_evidence"
+    assert result["truth_score"] == 34
+    assert len(llm.calls) == 2

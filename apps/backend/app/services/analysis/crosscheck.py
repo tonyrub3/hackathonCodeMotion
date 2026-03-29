@@ -11,6 +11,54 @@ from app.services.scoring.source_scoring import domain_from_url
 logger = logging.getLogger(__name__)
 
 
+JSON_REPAIR_SYSTEM = """\
+Sei un correttore di output LLM per un sistema di fact-checking.
+
+Riceverai un output grezzo che DOVREBBE essere JSON ma potrebbe contenere:
+- testo prima o dopo il JSON
+- markdown
+- campi mancanti o formattazione imperfetta
+
+Compito:
+- estrai e ripara il contenuto in un SOLO JSON valido
+- non aggiungere spiegazioni
+- conserva il significato originale
+- se un campo manca ma e chiaramente implicato, completa con un valore prudente
+
+Restituisci SOLO JSON valido con questa struttura:
+{
+  "judgment_basis": {
+    "main_claim_confirmed": <true|false>,
+    "direct_support_level": "<none|weak|moderate|strong>",
+    "contradiction_level": "<none|weak|moderate|strong>",
+    "subject_only_match": <true|false>,
+    "evidence_sufficiency": "<none|low|medium|high>",
+    "source_agreement": "<low|medium|high>",
+    "temporal_alignment": "<weak|medium|strong>"
+  },
+  "truth_score": <integer 0-100>,
+  "confidence_score": <float 0.0-1.0>,
+  "verdict": "<verified|mostly_verified|mixed|misleading|mostly_false|false|insufficient_evidence>",
+  "explanation": {
+    "summary": "<2-3 frasi in italiano>",
+    "why": "<motivazione principale in italiano>",
+    "supporting_evidence": ["<fatti o passaggi che supportano il testo>"],
+    "contradicting_evidence": ["<fatti o passaggi che contraddicono il testo>"],
+    "source_analysis": ["<una riga per fonte usata, in italiano>"],
+    "temporal_context": "<contesto temporale se rilevante>",
+    "caveats": ["<limiti della verifica>"]
+  },
+  "per_source": [
+    {
+      "source_index": <0-based>,
+      "stance": "<supporting|contradicting|neutral>",
+      "relevance": <0.0-1.0>,
+      "key_excerpt": "<passaggio rilevante max 200 caratteri>"
+    }
+  ]
+}"""
+
+
 CROSSCHECK_SYSTEM_TIER1 = """\
 Sei un fact-checker rigoroso.
 
@@ -159,13 +207,37 @@ class CrossCheckAnalysisLayer:
                 temperature=0.1,
             )
             parsed = parse_llm_json(raw)
-            if isinstance(parsed, dict) and ("truth_score" in parsed or "judgment_basis" in parsed):
+            if self._is_usable_payload(parsed):
                 return parsed
+            logger.error("    cross-check returned non-usable JSON; raw output: %r", self._truncate(raw))
+            repaired = await self._repair_output(raw)
+            if self._is_usable_payload(repaired):
+                logger.info("    cross-check JSON repaired successfully")
+                return repaired
+            logger.error("    cross-check repair also failed; repaired output: %r", self._truncate(repaired))
         except Exception as exc:
             logger.exception("    cross-check failed: %r", exc)
             raise
 
         raise RuntimeError("Cross-check returned no usable structured JSON")
+
+    def _is_usable_payload(self, payload: Any) -> bool:
+        return isinstance(payload, dict) and ("truth_score" in payload or "judgment_basis" in payload)
+
+    async def _repair_output(self, raw: str) -> Any:
+        repaired_text = await self.llm.generate_text(
+            prompt=f"OUTPUT GREZZO DA RIPARARE:\n{raw}",
+            system_prompt=JSON_REPAIR_SYSTEM,
+            max_tokens=2500,
+            temperature=0.0,
+        )
+        return parse_llm_json(repaired_text)
+
+    def _truncate(self, value: Any, limit: int = 1500) -> str:
+        text = str(value)
+        if len(text) <= limit:
+            return text
+        return text[:limit] + "...[truncated]"
 
     def _build_prompt(
         self,
