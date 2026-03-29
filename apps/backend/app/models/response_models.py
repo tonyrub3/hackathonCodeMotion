@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 from typing import Any
 
 from app.core.state import PipelineState
+from app.services.retrieval.domain_policy import TRUSTED_DOMAINS
 
 
 class ClaimResponse(BaseModel):
@@ -56,8 +57,18 @@ class VerifyResponse(BaseModel):
 
     input_type: str = "text"
     mode: str = "live"
+    source_url: str = ""
+    article_title: str = ""
+    article_author: str = ""
+    article_date: str = ""
+    cited_links: list[str] = Field(default_factory=list)
+    trusted_domains: dict[str, list[str]] = Field(default_factory=dict)
     claims: list[ClaimResponse] = Field(default_factory=list)
+    generated_queries: list[str] = Field(default_factory=list)
     sources_used: list[SourceResponse] = Field(default_factory=list)
+    all_tavily_results: list[dict[str, Any]] = Field(default_factory=list)
+    tavily_answer_hints: list[dict[str, Any]] = Field(default_factory=list)
+    tavily_search_profile: dict[str, Any] = Field(default_factory=dict)
     evidence: list[EvidenceResponse] = Field(default_factory=list)
     contradictions: list[ContradictionResponse] = Field(default_factory=list)
     linguistic_risk: dict[str, Any] = Field(default_factory=dict)
@@ -122,8 +133,18 @@ def build_response_from_state(state: PipelineState) -> VerifyResponse:
     return VerifyResponse(
         input_type=state.input_type,
         mode=state.mode,
+        source_url=state.source_url,
+        article_title=state.article_title,
+        article_author=state.article_author,
+        article_date=state.article_date,
+        cited_links=state.cited_links,
+        trusted_domains=TRUSTED_DOMAINS,
         claims=claims,
+        generated_queries=state.generated_queries,
         sources_used=sources,
+        all_tavily_results=state.all_tavily_results,
+        tavily_answer_hints=state.tavily_answer_hints,
+        tavily_search_profile=state.tavily_search_profile,
         evidence=evidence,
         contradictions=contradictions,
         linguistic_risk=state.linguistic_risk,

@@ -12,141 +12,109 @@ Nessuna logica di claims: il testo viene verificato come blocco unico.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
 import time
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from urllib.parse import urlparse
 
 from app.config import Settings
 from app.core.state import PipelineState
+from app.agents.query_planning_agent import QueryPlanningAgent
 from app.connectors.tavily_search import tavily_search
 from app.connectors.tavily_extract import tavily_extract
 from app.connectors.regolo_client import RegoloClient
+from app.services.analysis.crosscheck import CrossCheckAnalysisLayer
+from app.services.retrieval.domain_policy import BLACKLIST_DOMAINS, TIER1_DOMAINS, TRUSTED_DOMAINS
+from app.services.retrieval.search_profile import TavilySearchProfileBuilder
+from app.services.scoring.evidence_scoring import EvidenceScoringLayer
+from app.services.scoring.source_scoring import SourceScoringLayer
+from app.utils.pipeline_trace import layer_tag
 
 logger = logging.getLogger(__name__)
 
 
-# ---------------------------------------------------------------------------
-# Tier 1 domains: primary/institutional sources
-# ---------------------------------------------------------------------------
-
-TIER1_DOMAINS = [
-    "reuters.com", "apnews.com", "afp.com",
-    "bbc.com", "bbc.co.uk", "nytimes.com", "washingtonpost.com",
-    "theguardian.com", "economist.com", "ft.com", "lemonde.fr",
-    "ansa.it", "adnkronos.com", "ilsole24ore.com", "corriere.it",
-    "repubblica.it", "rainews.it", "agi.it", "open.online",
-    "europa.eu", "who.int", "un.org", "imf.org", "worldbank.org",
-    "ecb.europa.eu", "istat.it", "governo.it", "camera.it",
-    "snopes.com", "factcheck.org", "politifact.com",
-    "pagellapolitica.it", "facta.news", "butac.it",
-    "nature.com", "science.org", "pubmed.ncbi.nlm.nih.gov",
-]
-
-BLACKLIST_DOMAINS = [
-    "reddit.com", "quora.com", "medium.com", "twitter.com", "x.com",
-    "facebook.com", "instagram.com", "tiktok.com", "pinterest.com",
-    "youtube.com", "linkedin.com", "tumblr.com",
-    "wikipedia.org",
-    "amazon.com", "ebay.com", "alibaba.com",
-    "blogspot.com", "wordpress.com",
-]
-
 TIER1_MIN_USEFUL = 2
 TIER2_RELEVANCE_THRESHOLD = 0.20
 
-
-# ---------------------------------------------------------------------------
-# Prompts
-# ---------------------------------------------------------------------------
-
-QUERY_GEN_SYSTEM = """\
-You are a search-query optimizer for fact-checking.
-You will receive a text (short statement OR full article).
-Your job: identify the 3 most important *verifiable facts* in the text and turn each into a concise search query.
-
-Rules:
-- Focus on concrete facts: names, numbers, dates, events, locations.
-- Skip opinions, adjectives, and vague assertions.
-- One query in ENGLISH, one in the original language, one mixed/alternate angle.
-- Return ONLY a JSON array of 3 strings. No markdown, no explanation."""
-
-CROSSCHECK_SYSTEM_TIER1 = """\
-You are a rigorous fact-checker. You will receive:
-- TEXT: the full article or statement to verify
-- SOURCES: evidence from PRIMARY/INSTITUTIONAL web sources
-
-Your job: compare the TEXT against the SOURCES and determine the overall truthfulness.
-Analyze the text AS A WHOLE — do NOT split it into individual claims.
-Check every verifiable fact (names, numbers, dates, events) against the sources.
-If some facts are confirmed and others are not, reflect that in the score.
-
-Respond with ONLY valid JSON (no markdown, no extra text):
-{
-  "truth_score": <integer 0-100>,
-  "confidence_score": <float 0.0-1.0>,
-  "verdict": "<verified|mostly_verified|mixed|misleading|mostly_false|false|insufficient_evidence>",
-  "explanation": {
-    "summary": "<2-3 sentence overall verdict>",
-    "why": "<main reasons for the verdict>",
-    "supporting_evidence": ["<facts confirmed by sources>"],
-    "contradicting_evidence": ["<facts contradicted by sources>"],
-    "source_analysis": ["<one-line assessment per source used>"],
-    "temporal_context": "<time-related context if relevant>",
-    "caveats": ["<limitations>"]
-  },
-  "per_source": [
-    {
-      "source_index": <0-based>,
-      "stance": "<supporting|contradicting|neutral>",
-      "relevance": <0.0-1.0>,
-      "key_excerpt": "<most relevant quote, max 200 chars>"
-    }
-  ]
-}"""
-
-CROSSCHECK_SYSTEM_TIER2 = """\
-You are a rigorous fact-checker. You will receive:
-- TEXT: the full article or statement to verify
-- SOURCES: evidence from BROAD web search (local newspapers, niche sites, blogs, lesser-known outlets)
-
-Your job: compare the TEXT against the SOURCES and determine the overall truthfulness.
-Analyze the text AS A WHOLE — do NOT split it into individual claims.
-
-Because these are NOT primary sources, also evaluate each source's tone:
-- Factual news report (dateline, quotes, attribution) → more reliable
-- Opinion/editorial/blog → less reliable
-- Local outlet covering a local event → can be reliable for local facts
-
-Confidence rules:
-- Cap confidence_score at 0.65 max (only non-primary sources available)
-- ALWAYS add this caveat: "Confirmed by local/sector sources only; not yet corroborated by major media."
-
-Respond with ONLY valid JSON (no markdown, no extra text):
-{
-  "truth_score": <integer 0-100>,
-  "confidence_score": <float 0.0-0.65>,
-  "verdict": "<verified|mostly_verified|mixed|misleading|mostly_false|false|insufficient_evidence>",
-  "explanation": {
-    "summary": "<2-3 sentence verdict — mention source tier>",
-    "why": "<main reasons, noting source quality>",
-    "supporting_evidence": ["<facts confirmed>"],
-    "contradicting_evidence": ["<facts contradicted>"],
-    "source_analysis": ["<per source: name, type, tone, reliability>"],
-    "temporal_context": "<time context>",
-    "caveats": ["Confirmed by local/sector sources only; not yet corroborated by major media."]
-  },
-  "per_source": [
-    {
-      "source_index": <0-based>,
-      "stance": "<supporting|contradicting|neutral>",
-      "relevance": <0.0-1.0>,
-      "key_excerpt": "<most relevant quote, max 200 chars>"
-    }
-  ]
-}"""
+RECENT_MARKERS_STRONG = (
+    "today", "yesterday", "breaking", "latest", "just", "hours ago",
+    "oggi", "ieri", "ultim'ora", "appena", "ore fa",
+)
+RECENT_MARKERS_SOFT = (
+    "this week", "this month", "current", "currently", "now", "recent",
+    "questa settimana", "questo mese", "attuale", "attualmente", "recente",
+)
+NEWS_HINTS = (
+    "election", "minister", "government", "war", "earthquake", "visit", "appointed",
+    "president", "pope", "sports", "match", "breaking", "ministero", "governo",
+    "guerra", "terremoto", "visita", "nominato", "presidente", "papa", "partita",
+)
+FINANCE_HINTS = (
+    "stock", "stocks", "market", "markets", "nasdaq", "dow jones", "s&p", "bond",
+    "bonds", "inflation", "gdp", "earnings", "revenue", "interest rate", "rates",
+    "crypto", "bitcoin", "ethereum", "share price", "fed", "ecb", "inflazione",
+    "pil", "mercato", "mercati", "azioni", "obbligazioni", "tassi", "borsa",
+    "ricavi", "utili", "criptovalute",
+)
+TOPIC_ALIASES = {
+    "politics": "news",
+    "politica": "news",
+    "world": "news",
+    "cronaca": "news",
+    "sport": "news",
+    "sports": "news",
+    "current_events": "news",
+    "attualita": "news",
+    "attualità": "news",
+    "economy": "finance",
+    "economia": "finance",
+    "business": "finance",
+    "finance": "finance",
+    "finanza": "finance",
+    "markets": "finance",
+    "mercati": "finance",
+}
+STOPWORDS = {
+    "the", "and", "for", "with", "that", "this", "from", "have", "has", "was", "were", "are",
+    "del", "della", "delle", "degli", "dello", "con", "per", "che", "sono", "era", "dalla",
+    "dalle", "nella", "nelle", "alla", "alle", "una", "uno", "gli", "lo", "la", "dei",
+}
+COUNTRY_ALIASES = {
+    "it": "italy",
+    "ita": "italy",
+    "italia": "italy",
+    "us": "united states",
+    "usa": "united states",
+    "u.s.": "united states",
+    "u.s.a.": "united states",
+    "uk": "united kingdom",
+    "gb": "united kingdom",
+    "gbr": "united kingdom",
+    "england": "united kingdom",
+    "fr": "france",
+    "fra": "france",
+    "de": "germany",
+    "ger": "germany",
+    "es": "spain",
+    "esp": "spain",
+}
+ATTRIBUTION_MARKERS = (
+    "according to", "reported", "reports", "confirmed", "statement", "official", "data from",
+    "said", "told", "announced", "published by", "secondo", "ha detto", "ha dichiarato",
+    "ha confermato", "riporta", "comunicato", "dati di", "ufficiale", "ha annunciato",
+)
+STRUCTURE_MARKERS = (
+    "%", "percent", "per cento", "million", "billion", "miliardi", "milioni",
+    "202", "2026", "2025", "2024", "monday", "tuesday", "luned", "marted", "mercoled",
+)
+SPAM_MARKERS = (
+    "click here", "buy now", "you won't believe", "shocking", "miracle", "viral",
+    "clicca qui", "compra ora", "incredibile", "assurdo", "clamoroso", "miracoloso",
+)
 
 
 # ---------------------------------------------------------------------------
@@ -187,25 +155,6 @@ def _source_tier(reliability: float) -> str:
     return "C"
 
 
-def _parse_llm_json(text: str) -> Any:
-    text = text.strip()
-    if text.startswith("```"):
-        text = re.sub(r"^```(?:json)?\s*", "", text)
-        text = re.sub(r"\s*```$", "", text)
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        pass
-    for pattern in [r"\{[\s\S]*\}", r"\[[\s\S]*\]"]:
-        m = re.search(pattern, text)
-        if m:
-            try:
-                return json.loads(m.group())
-            except json.JSONDecodeError:
-                continue
-    return None
-
-
 def _to_str_list(items: list) -> list[str]:
     """Coerce list items to strings (LLM sometimes returns dicts)."""
     out = []
@@ -224,6 +173,28 @@ def _to_str_list(items: list) -> list[str]:
     return out
 
 
+def _normalize_for_match(text: str) -> str:
+    return re.sub(r"\s+", " ", (text or "").strip().lower())
+
+
+def _tokenize(text: str) -> set[str]:
+    cleaned = re.sub(r"[^\w\s]", " ", _normalize_for_match(text))
+    return {part for part in cleaned.split() if len(part) > 2 and part not in STOPWORDS}
+
+
+def _parse_iso_like_date(value: str) -> datetime | None:
+    if not value:
+        return None
+    text = value.strip().replace("Z", "+00:00")
+    for candidate in (text, text[:10]):
+        try:
+            parsed = datetime.fromisoformat(candidate)
+            return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+        except ValueError:
+            continue
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Engine
 # ---------------------------------------------------------------------------
@@ -239,6 +210,11 @@ class TavilyFirstEngine:
             base_url=settings.regolo_base_url,
             llm_model=settings.regolo_model,
         )
+        self.query_planner = QueryPlanningAgent(settings, llm_client=self.llm)
+        self.crosscheck = CrossCheckAnalysisLayer(self.llm)
+        self.search_profile_builder = TavilySearchProfileBuilder()
+        self.source_scoring = SourceScoringLayer()
+        self.evidence_scoring = EvidenceScoringLayer()
 
     async def run(self, state: PipelineState) -> PipelineState:
         text = state.normalized_text or state.raw_content
@@ -247,19 +223,46 @@ class TavilyFirstEngine:
             state.errors.append("tavily_first: empty input")
             return state
 
-        logger.info("    text length: %d chars", len(text))
+        logger.info("%s text_length=%d chars", layer_tag("pipeline"), len(text))
 
         # --- 1. Generate search queries from the full text ---
         t0 = time.time()
-        queries = await self._generate_queries(text)
+        logger.info("%s planning queries with Regolo", layer_tag("query"))
+        queries = state.generated_queries or await self._generate_queries(text)
+        state.generated_queries = list(queries)
         state.timings["query_generation"] = round(time.time() - t0, 3)
-        logger.info("    queries: %s (%.3fs)", queries, state.timings["query_generation"])
+        logger.info(
+            "%s generated=%d elapsed=%.3fs queries=%s",
+            layer_tag("query"),
+            len(queries),
+            state.timings["query_generation"],
+            queries,
+        )
 
         # --- 2. Cascade search ---
         t0 = time.time()
-        results, search_tier = await self._cascade_search(queries)
+        search_profile = self._build_search_profile(state, text)
+        state.tavily_search_profile = dict(search_profile)
+        logger.info(
+            "%s profile topic=%s country=%s temporal=%s",
+            layer_tag("retrieval"),
+            search_profile["topic"],
+            search_profile.get("country") or "-",
+            search_profile["temporal"],
+        )
+        results, search_tier, retrieval_meta = await self._cascade_search(queries, search_profile)
+        state.all_tavily_results = retrieval_meta["all_results"]
+        state.tavily_answer_hints = retrieval_meta["answer_hints"]
         state.timings["tavily_search"] = round(time.time() - t0, 3)
-        logger.info("    results: %d (tier=%s, %.3fs)", len(results), search_tier, state.timings["tavily_search"])
+        logger.info(
+            "%s selected=%d tier=%s all_found=%d hints=%d elapsed=%.3fs",
+            layer_tag("retrieval"),
+            len(results),
+            search_tier,
+            len(state.all_tavily_results),
+            len(state.tavily_answer_hints),
+            state.timings["tavily_search"],
+        )
 
         if not results:
             state.verdict = "insufficient_evidence"
@@ -276,16 +279,39 @@ class TavilyFirstEngine:
 
         # --- 2b. Extract full content where missing ---
         t0 = time.time()
+        logger.info("%s enriching source content", layer_tag("retrieval"))
         results = await self._enrich_content(results, text)
         state.timings["tavily_extract"] = round(time.time() - t0, 3)
+        logger.info("%s extract_elapsed=%.3fs", layer_tag("retrieval"), state.timings["tavily_extract"])
+
+        # --- 2c. Source scoring (domain trust + content trust + local relevance) ---
+        t0 = time.time()
+        logger.info("%s pre-scoring sources", layer_tag("scoring"))
+        results = self._pre_score_sources(results, text)
+        state.timings["source_scoring"] = round(time.time() - t0, 3)
+        logger.info(
+            "%s scored=%d elapsed=%.3fs top_pre_score=%.3f",
+            layer_tag("scoring"),
+            len(results),
+            state.timings["source_scoring"],
+            float(results[0].get("_pre_score", 0.0)) if results else 0.0,
+        )
 
         # --- 3. LLM cross-check (full text vs sources) ---
         t0 = time.time()
+        logger.info("%s cross-checking evidence with Regolo", layer_tag("analysis"))
         analysis = await self._cross_check(text, results, search_tier)
         state.timings["llm_crosscheck"] = round(time.time() - t0, 3)
-        logger.info("    cross-check done (%.3fs)", state.timings["llm_crosscheck"])
+        logger.info(
+            "%s verdict=%s raw_confidence=%.2f elapsed=%.3fs",
+            layer_tag("analysis"),
+            analysis.get("verdict", "insufficient_evidence"),
+            float(analysis.get("confidence_score", 0.0)),
+            state.timings["llm_crosscheck"],
+        )
 
         # --- 4. Build state ---
+        logger.info("%s assembling final state", layer_tag("assembly"))
         self._build_state(state, results, analysis, search_tier)
         return state
 
@@ -294,48 +320,42 @@ class TavilyFirstEngine:
     # ------------------------------------------------------------------
 
     async def _generate_queries(self, text: str) -> list[str]:
-        # Truncate very long articles for the query-gen prompt
-        snippet = text[:3000]
-        try:
-            raw = await self.llm.generate_text(
-                prompt=f'Text to fact-check:\n"""\n{snippet}\n"""',
-                system_prompt=QUERY_GEN_SYSTEM,
-                max_tokens=300,
-                temperature=0.2,
-            )
-            parsed = _parse_llm_json(raw)
-            if isinstance(parsed, list) and parsed:
-                queries = []
-                for q in parsed[:3]:
-                    if isinstance(q, str):
-                        queries.append(q)
-                    elif isinstance(q, dict):
-                        # LLM returned {"en": "...", "it": "..."} — pick first value
-                        queries.append(str(next(iter(q.values()))))
-                    else:
-                        queries.append(str(q))
-                return queries
-        except Exception as exc:
-            logger.warning("    query gen failed: %s", exc)
-        # Fallback: first 300 chars as query
-        return [text[:300]]
+        return await self.query_planner.generate_queries(text)
 
     # ------------------------------------------------------------------
     # Cascade search
     # ------------------------------------------------------------------
 
     async def _cascade_search(
-        self, queries: list[str],
-    ) -> tuple[list[dict[str, Any]], str]:
+        self,
+        queries: list[str],
+        search_profile: dict[str, Any],
+    ) -> tuple[list[dict[str, Any]], str, dict[str, Any]]:
 
         # Tier 1
-        t1 = await self._tavily_multi(queries, include_domains=TIER1_DOMAINS)
+        t1, t1_hints = await self._tavily_multi(
+            queries,
+            topic=str(search_profile["topic"]),
+            country=str(search_profile.get("country", "")),
+            temporal=search_profile["temporal"],
+            include_domains=TIER1_DOMAINS,
+            tier_label="tier1",
+        )
         logger.info("    tier1: %d", len(t1))
+        retrieval_meta = self._build_retrieval_meta(t1, [], t1_hints, [])
         if len(t1) >= TIER1_MIN_USEFUL:
-            return t1[:5], "tier1"
+            return t1[:5], "tier1", retrieval_meta
 
         # Tier 2
-        t2 = await self._tavily_multi(queries, exclude_domains=BLACKLIST_DOMAINS)
+        t2, t2_hints = await self._tavily_multi(
+            queries,
+            topic=str(search_profile["topic"]),
+            country=str(search_profile.get("country", "")),
+            temporal=search_profile["temporal"],
+            exclude_domains=BLACKLIST_DOMAINS,
+            tier_label="tier2",
+        )
+        retrieval_meta = self._build_retrieval_meta(t1, t2, t1_hints, t2_hints)
         t2_useful = [r for r in t2 if r.get("score", 0) >= TIER2_RELEVANCE_THRESHOLD]
         logger.info("    tier2: %d total, %d useful", len(t2), len(t2_useful))
 
@@ -347,12 +367,12 @@ class TavilyFirstEngine:
                     seen.add(r.get("url"))
                     r["_tier"] = "tier2"
                     merged.append(r)
-            return merged[:5], "mixed"
+            return merged[:5], "mixed", retrieval_meta
 
         if t2_useful:
             for r in t2_useful:
                 r["_tier"] = "tier2"
-            return t2_useful[:5], "tier2"
+            return t2_useful[:5], "tier2", retrieval_meta
 
         # Last resort: best of anything
         everything = t1 + t2
@@ -361,37 +381,150 @@ class TavilyFirstEngine:
             for r in everything:
                 if r not in t1:
                     r["_tier"] = "tier2"
-            return everything[:5], "tier2"
+            return everything[:5], "tier2", retrieval_meta
 
-        return [], "tier1"
+        return [], "tier1", retrieval_meta
 
     async def _tavily_multi(
         self,
         queries: list[str],
+        *,
+        topic: str,
+        country: str,
+        temporal: dict[str, str],
         include_domains: list[str] | None = None,
         exclude_domains: list[str] | None = None,
-    ) -> list[dict[str, Any]]:
+        tier_label: str = "tier1",
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         seen: set[str] = set()
         out: list[dict[str, Any]] = []
-        for q in queries:
-            data = await tavily_search(
+        answer_hints: list[dict[str, Any]] = []
+        tasks = [
+            tavily_search(
                 query=q,
                 search_depth="advanced",
                 max_results=5,
-                include_raw_content=True,
+                include_raw_content="text",
                 include_answer="basic",
                 auto_parameters=True,
                 include_domains=include_domains,
                 exclude_domains=exclude_domains,
-                topic="news",
+                topic=topic,
+                time_range=temporal.get("time_range"),
+                start_date=temporal.get("start_date"),
+                end_date=temporal.get("end_date"),
+                country=country or None,
+                exact_match=self._should_use_exact_match(q),
             )
+            for q in queries
+        ]
+        responses = await asyncio.gather(*tasks, return_exceptions=True)
+        for q, data in zip(queries, responses):
+            if isinstance(data, Exception):
+                logger.warning("    tavily search failed for query=%r: %s", q, data)
+                continue
+            if data.get("answer"):
+                answer_hints.append(
+                    {
+                        "query": q,
+                        "answer": data["answer"],
+                        "tier": tier_label,
+                        "topic": topic,
+                        "country": country or "",
+                        "request_id": data.get("request_id", ""),
+                        "auto_parameters": data.get("auto_parameters", {}),
+                        "usage": data.get("usage", {}),
+                    }
+                )
             for r in data.get("results", []):
                 url = r.get("url", "")
                 if url and url not in seen:
                     seen.add(url)
-                    out.append(r)
+                    item = dict(r)
+                    if data.get("answer"):
+                        item["_answer_hint"] = data["answer"]
+                    item["_query"] = q
+                    item["_request_id"] = data.get("request_id", "")
+                    item["_auto_parameters"] = data.get("auto_parameters", {})
+                    item["_usage"] = data.get("usage", {})
+                    item["_retrieval_tier"] = tier_label
+                    item["_search_topic"] = topic
+                    if country:
+                        item["_search_country"] = country
+                    out.append(item)
         out.sort(key=lambda r: r.get("score", 0), reverse=True)
-        return out
+        return out, answer_hints
+
+    def _build_search_profile(self, state: PipelineState, text: str) -> dict[str, Any]:
+        return self.search_profile_builder.build(state, text)
+
+    def _select_tavily_topic(self, state: PipelineState, text: str) -> str:
+        return self.search_profile_builder.select_tavily_topic(state, text)
+
+    def _select_country_boost(self, state: PipelineState, topic: str) -> str:
+        return self.search_profile_builder.select_country_boost(state, topic)
+
+    def _normalize_country(self, country: str) -> str:
+        return self.search_profile_builder.normalize_country(country)
+
+    def _build_temporal_filters(self, state: PipelineState, text: str, topic: str) -> dict[str, str]:
+        return self.search_profile_builder.build_temporal_filters(state, text, topic)
+
+    def _has_recent_signal(self, state: PipelineState, text: str, strong_only: bool = False) -> bool:
+        return self.search_profile_builder.has_recent_signal(state, text, strong_only=strong_only)
+
+    def _should_use_exact_match(self, query: str) -> bool:
+        return self.search_profile_builder.should_use_exact_match(query)
+
+    def _build_retrieval_meta(
+        self,
+        tier1_results: list[dict[str, Any]],
+        tier2_results: list[dict[str, Any]],
+        tier1_hints: list[dict[str, Any]],
+        tier2_hints: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        all_results: list[dict[str, Any]] = []
+        seen_urls: set[str] = set()
+        for item in tier1_results + tier2_results:
+            url = item.get("url", "")
+            if not url or url in seen_urls:
+                continue
+            seen_urls.add(url)
+            all_results.append(item)
+        all_results.sort(key=lambda item: item.get("score", 0), reverse=True)
+
+        deduped_hints: list[dict[str, Any]] = []
+        seen_hints: set[tuple[str, str, str]] = set()
+        for hint in tier1_hints + tier2_hints:
+            key = (
+                str(hint.get("query", "")),
+                str(hint.get("tier", "")),
+                str(hint.get("answer", "")),
+            )
+            if key in seen_hints:
+                continue
+            seen_hints.add(key)
+            deduped_hints.append(hint)
+
+        return {
+            "all_results": all_results,
+            "answer_hints": deduped_hints,
+        }
+
+    def _pre_score_sources(self, results: list[dict[str, Any]], text: str) -> list[dict[str, Any]]:
+        return self.source_scoring.score_sources(results, text)
+
+    def _source_body(self, source: dict[str, Any]) -> str:
+        return self.source_scoring.source_body(source)
+
+    def _content_trust_score(self, text: str) -> float:
+        return self.source_scoring.content_trust_score(text)
+
+    def _local_relevance_score(self, text_to_verify: str, source_text: str) -> float:
+        return self.source_scoring.local_relevance_score(text_to_verify, source_text)
+
+    def _combine_source_trust(self, domain_trust: float, content_trust: float) -> float:
+        return self.source_scoring.combine_source_trust(domain_trust, content_trust)
 
     # ------------------------------------------------------------------
     # Content enrichment
@@ -417,6 +550,8 @@ class TavilyFirstEngine:
                     urls=urls_need[:5],
                     query=text[:300],
                     chunks_per_source=3,
+                    extract_depth="advanced",
+                    output_format="text",
                 )
                 for er in data.get("results", []):
                     idx = idx_map.get(er.get("url", ""))
@@ -433,83 +568,10 @@ class TavilyFirstEngine:
     async def _cross_check(
         self, text: str, results: list[dict[str, Any]], search_tier: str,
     ) -> dict[str, Any]:
-
-        # Build source context — use more content per source
-        sources_block = ""
-        for i, r in enumerate(results):
-            domain = _domain_from_url(r.get("url", ""))
-            tier_tag = "PRIMARY" if r.get("_tier") != "tier2" and search_tier != "tier2" else "BROAD"
-            body = r.get("raw_content") or r.get("content") or ""
-            body = body[:2000]  # generous per-source limit
-            sources_block += (
-                f"\n--- SOURCE {i} [{domain}] ({tier_tag}) ---\n"
-                f"Title: {r.get('title', '')}\n"
-                f"URL: {r.get('url', '')}\n"
-                f"Content:\n{body}\n"
-            )
-
-        # Truncate user text to fit in context
-        user_text = text[:4000]
-        prompt = (
-            f"TEXT TO VERIFY:\n\"\"\"\n{user_text}\n\"\"\"\n\n"
-            f"SOURCES FROM WEB SEARCH:\n{sources_block}\n\n"
-            "Produce your fact-check verdict as JSON."
-        )
-        system = CROSSCHECK_SYSTEM_TIER1 if search_tier == "tier1" else CROSSCHECK_SYSTEM_TIER2
-
-        try:
-            raw = await self.llm.generate_text(
-                prompt=prompt,
-                system_prompt=system,
-                max_tokens=2000,
-                temperature=0.1,
-            )
-            parsed = _parse_llm_json(raw)
-            if isinstance(parsed, dict) and "truth_score" in parsed:
-                return parsed
-        except Exception as exc:
-            logger.error("    cross-check failed: %s", exc)
-
-        return self._fallback(results)
+        return await self.crosscheck.run(text, results, search_tier)
 
     def _fallback(self, results: list[dict[str, Any]]) -> dict[str, Any]:
-        if not results:
-            return {
-                "truth_score": 0, "confidence_score": 0.0,
-                "verdict": "insufficient_evidence",
-                "explanation": {
-                    "summary": "Unable to verify: no sources.", "why": "No results.",
-                    "supporting_evidence": [], "contradicting_evidence": [],
-                    "source_analysis": [], "temporal_context": "",
-                    "caveats": ["LLM analysis unavailable."],
-                },
-                "per_source": [],
-            }
-        avg = sum(r.get("score", 0.5) for r in results) / len(results)
-        score = max(0, min(100, int(avg * 80 + 10)))
-        for thr, v in [(85, "verified"), (70, "mostly_verified"), (55, "mixed"),
-                       (40, "misleading"), (25, "mostly_false"), (0, "false")]:
-            if score >= thr:
-                verdict = v
-                break
-        else:
-            verdict = "insufficient_evidence"
-        return {
-            "truth_score": score,
-            "confidence_score": round(min(len(results) / 5, 1.0) * 0.6, 2),
-            "verdict": verdict,
-            "explanation": {
-                "summary": f"Fallback analysis from {len(results)} sources.",
-                "why": "LLM unavailable.", "supporting_evidence": [],
-                "contradicting_evidence": [],
-                "source_analysis": [f"{_domain_from_url(r.get('url',''))}: {r.get('score',0):.2f}" for r in results],
-                "temporal_context": "", "caveats": ["Fallback scoring."],
-            },
-            "per_source": [
-                {"source_index": i, "stance": "neutral", "relevance": r.get("score", 0.5), "key_excerpt": ""}
-                for i, r in enumerate(results)
-            ],
-        }
+        return self.crosscheck.fallback(results)
 
     # ------------------------------------------------------------------
     # Build PipelineState (NO claims)
@@ -526,57 +588,15 @@ class TavilyFirstEngine:
         # No claims — empty list
         state.claims = []
 
-        per_source = {ps.get("source_index", -1): ps for ps in analysis.get("per_source", [])}
-
-        sources_used = []
-        scored_evidence = []
-        contradictions = []
-
-        for i, r in enumerate(results):
-            url = r.get("url", "")
-            domain = _domain_from_url(url)
-            reliability = _domain_reliability(domain)
-            tier = _source_tier(reliability)
-            sid = f"s{i+1}"
-            is_primary = r.get("_tier") != "tier2" and search_tier != "tier2"
-
-            sources_used.append({
-                "source_id": sid,
-                "source_name": domain,
-                "source_type": "primary_media" if is_primary else "local_media",
-                "url": url,
-                "tier": tier,
-                "source_reliability_score": reliability,
-                "dimensions": {
-                    "domain_trust": reliability,
-                    "relevance": r.get("score", 0.5),
-                    "is_primary": 1.0 if is_primary else 0.0,
-                },
-            })
-
-            ps = per_source.get(i, {})
-            stance = ps.get("stance", "neutral")
-            relevance = ps.get("relevance", r.get("score", 0.5))
-            excerpt = ps.get("key_excerpt", "") or (r.get("content") or "")[:300]
-
-            scored_evidence.append({
-                "source_id": sid,
-                "stance": stance,
-                "evidence_score": round(0.5 * relevance + 0.3 * reliability + 0.2 * r.get("score", 0.5), 3),
-                "excerpt": excerpt[:400],
-            })
-
-            if stance == "contradicting":
-                contradictions.append({
-                    "claim_id": "",
-                    "type": "source_conflict",
-                    "description": f"{domain}: {excerpt[:200]}",
-                    "severity": round(relevance * reliability, 2),
-                })
-
-        state.sources_used = sources_used
-        state.scored_evidence = scored_evidence
-        state.contradictions = contradictions
+        (
+            state.sources_used,
+            state.scored_evidence,
+            state.contradictions,
+        ) = self.evidence_scoring.build_records(
+            results=results,
+            analysis=analysis,
+            search_tier=search_tier,
+        )
 
         # Scores with tier-based confidence cap
         state.truth_score = max(0, min(100, analysis.get("truth_score", 0)))
@@ -586,7 +606,8 @@ class TavilyFirstEngine:
         state.verdict = analysis.get("verdict", "insufficient_evidence")
 
         logger.info(
-            "    verdict=%s score=%d confidence=%.2f (raw=%.2f cap=%.2f tier=%s)",
+            "%s verdict=%s score=%d confidence=%.2f raw=%.2f cap=%.2f tier=%s",
+            layer_tag("assembly"),
             state.verdict, state.truth_score, state.confidence_score, raw_conf, cap, search_tier,
         )
 

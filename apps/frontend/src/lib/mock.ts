@@ -4,6 +4,24 @@ import { VerifyResponse } from "./types";
 export const MOCK_RESPONSE: VerifyResponse = {
   input_type: "text",
   mode: "live",
+  source_url: "",
+  article_title: "",
+  article_author: "",
+  article_date: "",
+  cited_links: [],
+  trusted_domains: {
+    news_general: ["ansa.it", "reuters.com", "apnews.com", "bbc.com", "corriere.it"],
+    finance_statistical: [
+      "ilsole24ore.com",
+      "bloomberg.com",
+      "ft.com",
+      "wsj.com",
+      "bancaditalia.it",
+      "istat.it",
+    ],
+    fact_checking: ["pagellapolitica.it", "facta.news", "snopes.com", "politifact.com"],
+    institutional: ["governo.it", "gazzettaufficiale.it", "europa.eu"],
+  },
   claims: [
     {
       id: "c1",
@@ -29,6 +47,11 @@ export const MOCK_RESPONSE: VerifyResponse = {
       partial_score: 55,
       checkability_score: 0.4,
     },
+  ],
+  generated_queries: [
+    "italy inflation rate february 2026 istat",
+    "BCE rialzo tassi marzo 2026",
+    "ECB rate hike italy inflation consumer spending 2026",
   ],
   sources_used: [
     {
@@ -62,6 +85,38 @@ export const MOCK_RESPONSE: VerifyResponse = {
       },
     },
   ],
+  all_tavily_results: [
+    {
+      url: "https://www.istat.it",
+      title: "ISTAT inflation release",
+      score: 0.91,
+      _query: "italy inflation rate february 2026 istat",
+      _retrieval_tier: "tier1",
+      _search_topic: "finance",
+    },
+    {
+      url: "https://reuters.com",
+      title: "ECB coverage",
+      score: 0.78,
+      _query: "ECB rate hike italy inflation consumer spending 2026",
+      _retrieval_tier: "tier1",
+      _search_topic: "finance",
+    },
+  ],
+  tavily_answer_hints: [
+    {
+      query: "italy inflation rate february 2026 istat",
+      answer: "Italian inflation was reported at 2.0% in preliminary estimates.",
+      tier: "tier1",
+      topic: "finance",
+      country: "italy",
+    },
+  ],
+  tavily_search_profile: {
+    topic: "finance",
+    country: "italy",
+    temporal: {},
+  },
   evidence: [
     {
       source_id: "src_001",

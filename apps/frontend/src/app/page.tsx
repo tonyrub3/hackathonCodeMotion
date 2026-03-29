@@ -11,6 +11,7 @@ import { SourceReliabilityPanel } from "@/components/SourceReliabilityPanel";
 import { ExplanationPanel } from "@/components/ExplanationPanel";
 import { SiteForensicsCard } from "@/components/SiteForensicsCard";
 import { ConflictPanel } from "@/components/ConflictPanel";
+import { PipelineLogPanel } from "@/components/PipelineLogPanel";
 
 const FULL_TEXT = "Project: Aletheia";
 const TYPING_SPEED = 100; // ms per character
@@ -193,6 +194,8 @@ export default function Home() {
           )}
 
           <ExplanationPanel explanation={result.explanation} />
+
+          <PipelineLogPanel result={result} />
         </div>
       )}
     </main>

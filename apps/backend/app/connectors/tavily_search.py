@@ -26,6 +26,7 @@ async def tavily_search(
     time_range: str | None = None,
     start_date: str | None = None,
     end_date: str | None = None,
+    country: str | None = None,
     include_answer: bool | str = False,
     include_raw_content: bool | str = False,
     auto_parameters: bool = False,
@@ -57,6 +58,7 @@ async def tavily_search(
         "time_range": time_range,
         "start_date": start_date,
         "end_date": end_date,
+        "country": country,
         "exact_match": exact_match,
     }
 
@@ -70,6 +72,7 @@ async def tavily_search(
         "time_range": time_range,
         "start_date": start_date,
         "end_date": end_date,
+        "country": country,
         "include_answer": include_answer,
         "include_raw_content": include_raw_content,
         "auto_parameters": auto_parameters,

@@ -78,8 +78,18 @@ export interface LinguisticRisk {
 export interface VerifyResponse {
   input_type: string;
   mode: string;
+  source_url: string;
+  article_title: string;
+  article_author: string;
+  article_date: string;
+  cited_links: string[];
+  trusted_domains: Record<string, string[]>;
   claims: ClaimResponse[];
+  generated_queries: string[];
   sources_used: SourceResponse[];
+  all_tavily_results: Record<string, any>[];
+  tavily_answer_hints: Record<string, any>[];
+  tavily_search_profile: Record<string, any>;
   evidence: EvidenceResponse[];
   contradictions: ContradictionResponse[];
   linguistic_risk: LinguisticRisk;

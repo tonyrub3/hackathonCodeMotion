@@ -36,10 +36,14 @@ class PipelineState:
 
     # --- After Claim Decomposition ---
     claims: list[dict[str, Any]] = field(default_factory=list)
+    generated_queries: list[str] = field(default_factory=list)
 
     # --- After Source Discovery ---
     evidence_items: list[dict[str, Any]] = field(default_factory=list)
     sources_used: list[dict[str, Any]] = field(default_factory=list)
+    all_tavily_results: list[dict[str, Any]] = field(default_factory=list)
+    tavily_answer_hints: list[dict[str, Any]] = field(default_factory=list)
+    tavily_search_profile: dict[str, Any] = field(default_factory=dict)
 
     # --- After Evidence Analysis ---
     scored_evidence: list[dict[str, Any]] = field(default_factory=list)
