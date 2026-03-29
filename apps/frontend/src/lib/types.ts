@@ -52,19 +52,53 @@ export interface ExplanationResponse {
   caveats: string[];
 }
 
-export interface SiteForensics {
+export interface DiscoveredSource {
+  source_id?: string;
+  source_name?: string;
+  title?: string;
+  source_type?: string;
+  url: string;
+  domain?: string;
+  score?: number;
+  claim_ids?: string[];
+  query_hits?: Array<Record<string, unknown>>;
+  answer_hints?: string[];
+  selection_reason?: string;
+  snippet?: string;
+  raw_content?: string;
+  published_at?: string;
+  forensic_score?: number;
+  forensic_flags?: string[];
+  dimensions?: Record<string, number>;
+}
+
+export interface RejectedSource {
+  source_id?: string;
+  url?: string;
+  reason: string;
+  claim_id?: string;
+}
+
+export interface SourceForensics {
+  source_id?: string;
+  url?: string;
   domain: string;
   tld: string;
   https: boolean;
-  site_age_signal: string;
+  canonical_origin?: string;
   brand_mimicry_risk: number;
+  low_quality_risk?: number;
   author_present: boolean;
   author_name: string;
   citation_count: number;
-  primary_source_citations: number;
-  secondary_source_citations: number;
-  site_trust_score: number;
-  headline_body_mismatch: number;
+  citation_density?: number;
+  about_links?: number;
+  contact_links?: number;
+  editorial_links?: number;
+  published_at?: string;
+  forensic_score: number;
+  dimensions?: Record<string, number>;
+  flags?: string[];
 }
 
 export interface LinguisticRisk {
@@ -75,19 +109,42 @@ export interface LinguisticRisk {
   manipulation_markers: string[];
 }
 
+export interface ClaimScoreResponse {
+  claim_id: string;
+  claim: string;
+  support_score: number;
+  contradiction_score: number;
+  claim_coverage: number;
+  source_diversity: number;
+  temporal_alignment: number;
+  forensic_support: number;
+  confidence_score: number;
+  partial_score: number;
+  partial_verdict: string;
+  direct_supporting_evidence: number;
+  direct_contradicting_evidence: number;
+  direct_evidence_count: number;
+}
+
 export interface VerifyResponse {
   input_type: string;
   mode: string;
   claims: ClaimResponse[];
   sources_used: SourceResponse[];
+  all_sources_found: DiscoveredSource[];
+  selected_sources: DiscoveredSource[];
+  rejected_sources: RejectedSource[];
+  source_forensics: SourceForensics[];
+  claim_scores: ClaimScoreResponse[];
   evidence: EvidenceResponse[];
   contradictions: ContradictionResponse[];
   linguistic_risk: LinguisticRisk;
-  site_forensics: SiteForensics | null;
+  site_forensics: SourceForensics | null;
   truth_score: number;
   confidence_score: number;
   verdict: string;
   explanation: ExplanationResponse;
+  layer_outputs: Record<string, unknown>;
   errors: string[];
   timings: Record<string, number>;
 }

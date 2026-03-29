@@ -40,6 +40,7 @@ class Settings:
     max_claims_per_request: int = 20
     max_evidence_per_claim: int = 10
     request_timeout_seconds: int = 30
+    use_alethea_mvp_discovery: bool = True
 
     # CORS
     cors_origins: list[str] = field(default_factory=lambda: ["http://localhost:3000"])
@@ -63,5 +64,6 @@ def load_settings() -> Settings:
         max_claims_per_request=int(os.getenv("TE_MAX_CLAIMS", "20")),
         max_evidence_per_claim=int(os.getenv("TE_MAX_EVIDENCE", "10")),
         request_timeout_seconds=int(os.getenv("TE_TIMEOUT", "30")),
+        use_alethea_mvp_discovery=os.getenv("TE_USE_ALETHEA_MVP_DISCOVERY", "true").lower() == "true",
         cors_origins=os.getenv("TE_CORS_ORIGINS", "http://localhost:3000").split(","),
     )

@@ -1,9 +1,0 @@
-{
-  "title": "URL input – site forensics test",
-  "input_type": "url",
-  "content": "https://www.example.com/article/fake-news-test",
-  "expected_verdict": "insufficient_evidence",
-  "topic": "",
-  "language": "en",
-  "country": ""
-}

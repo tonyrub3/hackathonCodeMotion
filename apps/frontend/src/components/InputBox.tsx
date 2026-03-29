@@ -267,7 +267,7 @@ export function InputBox({ onSubmit, loading }: InputBoxProps) {
         </div>
       </div>
 
-      <style>{`
+      <style jsx global>{`
         @property --glow-angle {
           syntax: "<angle>";
           initial-value: 0deg;

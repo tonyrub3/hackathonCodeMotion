@@ -58,6 +58,11 @@ class VerifyResponse(BaseModel):
     mode: str = "live"
     claims: list[ClaimResponse] = Field(default_factory=list)
     sources_used: list[SourceResponse] = Field(default_factory=list)
+    all_sources_found: list[dict[str, Any]] = Field(default_factory=list)
+    selected_sources: list[dict[str, Any]] = Field(default_factory=list)
+    rejected_sources: list[dict[str, Any]] = Field(default_factory=list)
+    source_forensics: list[dict[str, Any]] = Field(default_factory=list)
+    claim_scores: list[dict[str, Any]] = Field(default_factory=list)
     evidence: list[EvidenceResponse] = Field(default_factory=list)
     contradictions: list[ContradictionResponse] = Field(default_factory=list)
     linguistic_risk: dict[str, Any] = Field(default_factory=dict)
@@ -66,6 +71,7 @@ class VerifyResponse(BaseModel):
     confidence_score: float = 0.0
     verdict: str = "insufficient_evidence"
     explanation: ExplanationResponse = Field(default_factory=ExplanationResponse)
+    layer_outputs: dict[str, Any] = Field(default_factory=dict)
     errors: list[str] = Field(default_factory=list)
     timings: dict[str, float] = Field(default_factory=dict)
 
@@ -124,6 +130,11 @@ def build_response_from_state(state: PipelineState) -> VerifyResponse:
         mode=state.mode,
         claims=claims,
         sources_used=sources,
+        all_sources_found=state.all_sources_found,
+        selected_sources=state.selected_sources,
+        rejected_sources=state.rejected_sources,
+        source_forensics=state.source_forensics,
+        claim_scores=state.claim_scores,
         evidence=evidence,
         contradictions=contradictions,
         linguistic_risk=state.linguistic_risk,
@@ -132,6 +143,7 @@ def build_response_from_state(state: PipelineState) -> VerifyResponse:
         confidence_score=state.confidence_score,
         verdict=state.verdict,
         explanation=explanation,
+        layer_outputs=state.layer_outputs,
         errors=state.errors,
         timings=state.timings,
     )

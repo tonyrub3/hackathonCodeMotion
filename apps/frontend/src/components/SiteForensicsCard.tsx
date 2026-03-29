@@ -1,16 +1,16 @@
 "use client";
 
-import { SiteForensics } from "@/lib/types";
+import { SourceForensics } from "@/lib/types";
 
 interface SiteForensicsCardProps {
-  forensics: SiteForensics;
+  forensics: SourceForensics;
 }
 
 export function SiteForensicsCard({ forensics }: SiteForensicsCardProps) {
   const trustColor =
-    forensics.site_trust_score >= 0.7
+    forensics.forensic_score >= 0.7
       ? "#22c55e"
-      : forensics.site_trust_score >= 0.4
+      : forensics.forensic_score >= 0.4
       ? "#eab308"
       : "#ef4444";
 
@@ -49,7 +49,6 @@ export function SiteForensicsCard({ forensics }: SiteForensicsCardProps) {
           value={forensics.https ? "Yes" : "No"}
           color={forensics.https ? "#22c55e" : "#ef4444"}
         />
-        <Stat label="Site Age" value={forensics.site_age_signal} />
         <Stat
           label="Author"
           value={
@@ -61,7 +60,7 @@ export function SiteForensicsCard({ forensics }: SiteForensicsCardProps) {
         />
         <Stat
           label="Citations"
-          value={`${forensics.citation_count} (${forensics.primary_source_citations} primary)`}
+          value={`${forensics.citation_count} (${((forensics.citation_density || 0) * 100).toFixed(0)}% density)`}
         />
         <Stat
           label="Brand Mimicry Risk"
@@ -69,8 +68,9 @@ export function SiteForensicsCard({ forensics }: SiteForensicsCardProps) {
           color={forensics.brand_mimicry_risk > 0.3 ? "#ef4444" : "#22c55e"}
         />
         <Stat
-          label="Headline/Body Match"
-          value={`${((1 - forensics.headline_body_mismatch) * 100).toFixed(0)}%`}
+          label="Low Quality Risk"
+          value={`${((forensics.low_quality_risk || 0) * 100).toFixed(0)}%`}
+          color={(forensics.low_quality_risk || 0) > 0.4 ? "#ef4444" : "#22c55e"}
         />
       </div>
 
@@ -84,10 +84,10 @@ export function SiteForensicsCard({ forensics }: SiteForensicsCardProps) {
         }}
       >
         <div style={{ fontSize: "1.4rem", fontWeight: 700, color: trustColor }}>
-          {(forensics.site_trust_score * 100).toFixed(0)}%
+          {(forensics.forensic_score * 100).toFixed(0)}%
         </div>
         <div style={{ fontSize: "0.75rem", color: "#94a3b8" }}>
-          Site Trust Score
+          Forensic Score
         </div>
       </div>
     </div>

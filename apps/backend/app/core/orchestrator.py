@@ -1,13 +1,9 @@
 """
-Orchestrator – drives the linear verification pipeline.
+Orchestrator – Tavily-First simplified pipeline.
 
 Pipeline stages:
-  1. Input Normalizer
-  2. Claim Decomposition
-  3. Source Discovery
-  4. Evidence & Source Analysis
-  5. Site Forensics (URL only)
-  6. Judge / Report
+  1. Input Normalizer (URL fetch / text cleanup)
+  2. Tavily-First Engine (query gen → search → LLM cross-check → verdict)
 """
 
 from __future__ import annotations
@@ -20,35 +16,18 @@ from typing import Any
 from app.config import Settings
 from app.core.state import PipelineState
 from app.agents.input_normalizer_agent import InputNormalizerAgent
-from app.agents.claim_decomposition_agent import ClaimDecompositionAgent
-from app.agents.source_discovery_agent import SourceDiscoveryAgent
-from app.agents.evidence_analysis_agent import EvidenceAnalysisAgent
-from app.agents.site_forensics_agent import SiteForensicsAgent
-from app.agents.judge_agent import JudgeAgent
+from app.pipeline.tavily_first import TavilyFirstEngine
 
 logger = logging.getLogger(__name__)
 
-STEP_ICONS = {
-    "input_normalizer": "1/6",
-    "claim_decomposition": "2/6",
-    "source_discovery": "3/6",
-    "evidence_analysis": "4/6",
-    "site_forensics": "5/6",
-    "judge": "6/6",
-}
-
 
 class Orchestrator:
-    """Runs the full verification pipeline and returns the final state."""
+    """Runs the Tavily-First verification pipeline and returns the final state."""
 
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
         self.input_normalizer = InputNormalizerAgent(settings)
-        self.claim_decomposer = ClaimDecompositionAgent(settings)
-        self.source_discoverer = SourceDiscoveryAgent(settings)
-        self.evidence_analyzer = EvidenceAnalysisAgent(settings)
-        self.site_forensics = SiteForensicsAgent(settings)
-        self.judge = JudgeAgent(settings)
+        self.tavily_engine = TavilyFirstEngine(settings)
 
     async def verify(
         self,
@@ -80,19 +59,12 @@ class Orchestrator:
 
         steps: list[tuple[str, Any]] = [
             ("input_normalizer", self.input_normalizer),
-            ("claim_decomposition", self.claim_decomposer),
-            ("source_discovery", self.source_discoverer),
-            ("evidence_analysis", self.evidence_analyzer),
+            ("tavily_engine", self.tavily_engine),
         ]
-
-        if input_type == "url":
-            steps.append(("site_forensics", self.site_forensics))
-
-        steps.append(("judge", self.judge))
 
         total_t0 = time.time()
         for step_name, agent in steps:
-            icon = STEP_ICONS.get(step_name, "?/?")
+            icon = "1/2" if step_name == "input_normalizer" else "2/2"
             logger.info("")
             logger.info("--- [%s] %s ---", icon, step_name.upper())
             t0 = time.time()
@@ -113,8 +85,6 @@ class Orchestrator:
         logger.info("  verdict:    %s", state.verdict)
         logger.info("  score:      %.1f / 100", state.truth_score)
         logger.info("  confidence: %.0f%%", state.confidence_score * 100)
-        logger.info("  claims:     %d", len(state.claims))
-        logger.info("  evidence:   %d", len(state.scored_evidence))
         logger.info("  sources:    %d", len(state.sources_used))
         logger.info("  errors:     %d %s", len(state.errors), state.errors if state.errors else "")
         logger.info("  timings:    %s", state.timings)
