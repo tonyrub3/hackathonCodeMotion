@@ -36,17 +36,10 @@ class PipelineState:
 
     # --- After Claim Decomposition ---
     claims: list[dict[str, Any]] = field(default_factory=list)
-    query_plan: list[dict[str, Any]] = field(default_factory=list)
 
     # --- After Source Discovery ---
     evidence_items: list[dict[str, Any]] = field(default_factory=list)
     sources_used: list[dict[str, Any]] = field(default_factory=list)
-    all_sources_found: list[dict[str, Any]] = field(default_factory=list)
-    selected_sources: list[dict[str, Any]] = field(default_factory=list)
-    rejected_sources: list[dict[str, Any]] = field(default_factory=list)
-    source_forensics: list[dict[str, Any]] = field(default_factory=list)
-    claim_scores: list[dict[str, Any]] = field(default_factory=list)
-    layer_outputs: dict[str, Any] = field(default_factory=dict)
 
     # --- After Evidence Analysis ---
     scored_evidence: list[dict[str, Any]] = field(default_factory=list)

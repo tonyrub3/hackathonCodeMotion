@@ -11,7 +11,6 @@ import { SourceReliabilityPanel } from "@/components/SourceReliabilityPanel";
 import { ExplanationPanel } from "@/components/ExplanationPanel";
 import { SiteForensicsCard } from "@/components/SiteForensicsCard";
 import { ConflictPanel } from "@/components/ConflictPanel";
-import { LayerInspectorPanel } from "@/components/LayerInspectorPanel";
 
 const FULL_TEXT = "Project: Aletheia";
 const TYPING_SPEED = 100; // ms per character
@@ -20,15 +19,6 @@ const PAUSE_HIDDEN = 500; // ms to stay empty before retyping
 const PRIMARY_GREEN = "#00e676";
 
 type Phase = "typing" | "visible" | "deleting" | "hidden";
-
-function getQueryPlans(result: VerifyResponse): Array<Record<string, unknown>> {
-  const queryPlanning = result.layer_outputs?.query_planning;
-  if (!queryPlanning || typeof queryPlanning !== "object" || Array.isArray(queryPlanning)) {
-    return [];
-  }
-  const plans = (queryPlanning as { plans?: Array<Record<string, unknown>> }).plans;
-  return Array.isArray(plans) ? plans : [];
-}
 
 function TypingTitle() {
   const [displayedCount, setDisplayedCount] = useState(0);
@@ -203,17 +193,6 @@ export default function Home() {
           )}
 
           <ExplanationPanel explanation={result.explanation} />
-
-          <LayerInspectorPanel
-            queryPlans={getQueryPlans(result)}
-            allSourcesFound={result.all_sources_found}
-            selectedSources={result.selected_sources}
-            rejectedSources={result.rejected_sources}
-            sourceForensics={result.source_forensics}
-            claimScores={result.claim_scores}
-            evidence={result.evidence}
-            layerOutputs={result.layer_outputs}
-          />
         </div>
       )}
     </main>
