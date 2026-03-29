@@ -39,7 +39,6 @@ class Orchestrator:
         language: str = "auto",
         country: str = "",
         topic: str = "",
-        mode: str = "live",
     ) -> PipelineState:
         """Execute the full pipeline and return the populated state."""
         state = PipelineState(
@@ -49,14 +48,13 @@ class Orchestrator:
             language=language,
             country=country,
             topic=topic,
-            mode=mode,
         )
 
         logger.info("")
         logger.info("=" * 60)
         logger.info("%s new_request id=%s", layer_tag("pipeline"), state.request_id)
-        logger.info("  type=%s  mode=%s  lang=%s  topic=%s",
-                     input_type, mode, language, topic or "(none)")
+        logger.info("  type=%s  lang=%s  topic=%s",
+                     input_type, language, topic or "(none)")
         logger.info("  content: %.100s%s", content, "..." if len(content) > 100 else "")
         logger.info("=" * 60)
 

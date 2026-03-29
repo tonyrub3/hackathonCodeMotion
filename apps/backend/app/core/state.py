@@ -23,7 +23,6 @@ class PipelineState:
     language: str = "auto"
     country: str = ""
     topic: str = ""
-    mode: str = "live"  # "live" | "benchmark"
 
     # --- After Input Normalizer ---
     normalized_text: str = ""
@@ -49,9 +48,6 @@ class PipelineState:
     scored_evidence: list[dict[str, Any]] = field(default_factory=list)
     contradictions: list[dict[str, Any]] = field(default_factory=list)
     consensus_signals: dict[str, Any] = field(default_factory=dict)
-
-    # --- After Site Forensics (URL only) ---
-    site_forensics: dict[str, Any] | None = None
 
     # --- After Judge ---
     truth_score: float = 0.0

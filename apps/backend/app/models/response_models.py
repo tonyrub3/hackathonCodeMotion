@@ -57,7 +57,6 @@ class VerifyResponse(BaseModel):
     """Top-level response returned by POST /api/verify."""
 
     input_type: str = "text"
-    mode: str = "live"
     source_url: str = ""
     article_title: str = ""
     article_author: str = ""
@@ -73,7 +72,6 @@ class VerifyResponse(BaseModel):
     evidence: list[EvidenceResponse] = Field(default_factory=list)
     contradictions: list[ContradictionResponse] = Field(default_factory=list)
     linguistic_risk: dict[str, Any] = Field(default_factory=dict)
-    site_forensics: dict[str, Any] | None = None
     truth_score: float = 0.0
     confidence_score: float = 0.0
     verdict: str = "insufficient_evidence"
@@ -134,7 +132,6 @@ def build_response_from_state(state: PipelineState) -> VerifyResponse:
 
     return VerifyResponse(
         input_type=state.input_type,
-        mode=state.mode,
         source_url=state.source_url,
         article_title=state.article_title,
         article_author=state.article_author,
@@ -150,7 +147,6 @@ def build_response_from_state(state: PipelineState) -> VerifyResponse:
         evidence=evidence,
         contradictions=contradictions,
         linguistic_risk=state.linguistic_risk,
-        site_forensics=state.site_forensics,
         truth_score=state.truth_score,
         confidence_score=state.confidence_score,
         verdict=state.verdict,

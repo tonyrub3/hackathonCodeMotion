@@ -6,7 +6,6 @@ export interface VerifyRequest {
   language?: string;
   country?: string;
   topic?: string;
-  mode?: "live" | "benchmark";
 }
 
 export interface ClaimResponse {
@@ -52,21 +51,6 @@ export interface ExplanationResponse {
   caveats: string[];
 }
 
-export interface SiteForensics {
-  domain: string;
-  tld: string;
-  https: boolean;
-  site_age_signal: string;
-  brand_mimicry_risk: number;
-  author_present: boolean;
-  author_name: string;
-  citation_count: number;
-  primary_source_citations: number;
-  secondary_source_citations: number;
-  site_trust_score: number;
-  headline_body_mismatch: number;
-}
-
 export interface LinguisticRisk {
   sensationalism_score: number;
   emotional_tone_score: number;
@@ -77,7 +61,6 @@ export interface LinguisticRisk {
 
 export interface VerifyResponse {
   input_type: string;
-  mode: string;
   source_url: string;
   article_title: string;
   article_author: string;
@@ -93,7 +76,6 @@ export interface VerifyResponse {
   evidence: EvidenceResponse[];
   contradictions: ContradictionResponse[];
   linguistic_risk: LinguisticRisk;
-  site_forensics: SiteForensics | null;
   truth_score: number;
   confidence_score: number;
   verdict: string;

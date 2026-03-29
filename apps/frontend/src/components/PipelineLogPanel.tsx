@@ -86,7 +86,6 @@ export function PipelineLogPanel({ result }: PipelineLogPanelProps) {
       <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
         <LogSection title="[INPUT]" accent="#38bdf8">
           <LogRow label="Input type" value={result.input_type} />
-          <LogRow label="Mode" value={result.mode} />
           {result.input_type === "url" && (
             <>
               <LogRow label="Source URL" value={result.source_url || "n/a"} mono />

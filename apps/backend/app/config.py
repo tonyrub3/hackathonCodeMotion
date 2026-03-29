@@ -29,17 +29,6 @@ class Settings:
     regolo_embedding_api_key: str = ""
     regolo_embedding_model: str = "regolo/embedding-default"
 
-    # Google Fact Check
-    google_factcheck_api_key: str = ""
-    google_factcheck_base_url: str = "https://factchecktools.googleapis.com/v1alpha1"
-
-    # GDELT
-    gdelt_doc_api_url: str = "https://api.gdeltproject.org/api/v2/doc/doc"
-    gdelt_context_api_url: str = "https://api.gdeltproject.org/api/v2/context/context"
-
-    # FEVER
-    fever_data_dir: str = "data/fever"
-
     # Pipeline
     max_claims_per_request: int = 20
     max_evidence_per_claim: int = 10
@@ -65,10 +54,6 @@ def load_settings() -> Settings:
         regolo_scoring_model=os.getenv("REGOLO_SCORING_MODEL", ""),
         regolo_embedding_api_key=os.getenv("REGOLO_EMBEDDING_API_KEY", ""),
         regolo_embedding_model=os.getenv("REGOLO_EMBEDDING_MODEL", "regolo/embedding-default"),
-        google_factcheck_api_key=os.getenv("GOOGLE_FACTCHECK_API_KEY", ""),
-        gdelt_doc_api_url=os.getenv("GDELT_DOC_API_URL", "https://api.gdeltproject.org/api/v2/doc/doc"),
-        gdelt_context_api_url=os.getenv("GDELT_CONTEXT_API_URL", "https://api.gdeltproject.org/api/v2/context/context"),
-        fever_data_dir=os.getenv("FEVER_DATA_DIR", "data/fever"),
         max_claims_per_request=int(os.getenv("TE_MAX_CLAIMS", "20")),
         max_evidence_per_claim=int(os.getenv("TE_MAX_EVIDENCE", "10")),
         request_timeout_seconds=int(os.getenv("TE_TIMEOUT", "0")),

@@ -3,7 +3,6 @@ import { VerifyResponse } from "./types";
 /** Mock response for development without backend. */
 export const MOCK_RESPONSE: VerifyResponse = {
   input_type: "text",
-  mode: "live",
   source_url: "",
   article_title: "",
   article_author: "",
@@ -141,7 +140,6 @@ export const MOCK_RESPONSE: VerifyResponse = {
     uncertainty_score: 0.15,
     manipulation_markers: [],
   },
-  site_forensics: null,
   truth_score: 78,
   confidence_score: 0.76,
   verdict: "mostly_verified",

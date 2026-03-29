@@ -28,7 +28,3 @@ class VerifyRequest(BaseModel):
         default="",
         description="Optional topic hint (economy, politics, defense, …).",
     )
-    mode: Literal["live", "benchmark"] = Field(
-        default="live",
-        description="Pipeline mode.",
-    )

@@ -25,7 +25,6 @@ async def verify(body: VerifyRequest, request: Request) -> VerifyResponse:
         language=body.language,
         country=body.country,
         topic=body.topic,
-        mode=body.mode,
     )
 
     return build_response_from_state(state)

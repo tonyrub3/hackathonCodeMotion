@@ -18,7 +18,6 @@ from app.config import Settings, load_settings
 from app.utils.logger import setup_logging
 from app.api.routes_health import router as health_router
 from app.api.routes_verify import router as verify_router
-from app.api.routes_benchmark import router as benchmark_router
 from app.api.routes_debug import router as debug_router
 
 import logging
@@ -41,7 +40,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     logger.info("Embedding model:  %s", settings.regolo_embedding_model)
     logger.info("Regolo API key:   %s", "SET" if settings.regolo_api_key else "MISSING")
     logger.info("Embed API key:    %s", "SET" if settings.regolo_embedding_api_key else "MISSING")
-    logger.info("Google FC key:    %s", "SET" if settings.google_factcheck_api_key else "MISSING")
     logger.info("CORS origins:     %s", settings.cors_origins)
     logger.info("=" * 60)
 
@@ -71,7 +69,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # Routers
     app.include_router(health_router, prefix="/api")
     app.include_router(verify_router, prefix="/api")
-    app.include_router(benchmark_router, prefix="/api/benchmark")
     app.include_router(debug_router, prefix="/api/debug")
 
     return app

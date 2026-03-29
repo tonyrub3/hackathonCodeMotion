@@ -9,7 +9,6 @@ import { VerdictCard } from "@/components/VerdictCard";
 import { ClaimList } from "@/components/ClaimList";
 import { SourceReliabilityPanel } from "@/components/SourceReliabilityPanel";
 import { ExplanationPanel } from "@/components/ExplanationPanel";
-import { SiteForensicsCard } from "@/components/SiteForensicsCard";
 import { ConflictPanel } from "@/components/ConflictPanel";
 import { PipelineLogPanel } from "@/components/PipelineLogPanel";
 
@@ -187,10 +186,6 @@ export default function Home() {
 
           {result.contradictions.length > 0 && (
             <ConflictPanel contradictions={result.contradictions} />
-          )}
-
-          {result.site_forensics && (
-            <SiteForensicsCard forensics={result.site_forensics} />
           )}
 
           <ExplanationPanel explanation={result.explanation} />
